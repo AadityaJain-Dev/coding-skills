@@ -1,6 +1,7 @@
 <?php
 /**
- * Prints a compact Laravel/PHP project profile, cached at <projectRoot>/.claude/laravel-project-profile.md.
+ * Prints a compact Laravel/PHP project profile, cached at <projectRoot>/.agents/laravel-project-profile.md.
+ * Tool-agnostic: works with any AI assistant or IDE that can run a shell command.
  *
  * - First run: inspects composer.json/composer.lock, app structure and tooling config, writes the profile.
  * - Later runs: if the config fingerprint is unchanged, prints the cached profile (no re-inspection).
@@ -12,7 +13,8 @@
 
 declare(strict_types=1);
 
-const PROFILE_REL_PATH = '.claude' . DIRECTORY_SEPARATOR . 'laravel-project-profile.md';
+const PROFILE_REL_PATH = '.agents' . DIRECTORY_SEPARATOR . 'laravel-project-profile.md';
+const LEGACY_PROFILE_REL_PATH = '.claude' . DIRECTORY_SEPARATOR . 'laravel-project-profile.md'; // older location, migrated automatically
 const LEARNED_HEADING = '## Learned conventions';
 const CONFIG_FILES = [
     'composer.json', 'composer.lock', 'bootstrap/app.php', 'phpunit.xml', 'phpunit.xml.dist',
@@ -194,10 +196,12 @@ if ($root === null) {
 
 $profilePath = $root . DIRECTORY_SEPARATOR . PROFILE_REL_PATH;
 $fingerprint = fingerprintOf($root);
-$existing = readText($profilePath);
+$legacyPath = $root . DIRECTORY_SEPARATOR . LEGACY_PROFILE_REL_PATH;
+$migratedFrom = !is_file($profilePath) && is_file($legacyPath) ? $legacyPath : null;
+$existing = readText($migratedFrom ?? $profilePath);
 $cachedFingerprint = $existing !== null && preg_match('/fingerprint: ([0-9a-f]+)/', $existing, $m) ? $m[1] : null;
 
-if ($existing !== null && $cachedFingerprint === $fingerprint && !$forceRefresh) {
+if ($existing !== null && $cachedFingerprint === $fingerprint && !$forceRefresh && $migratedFrom === null) {
     echo "[laravel-profile] status=fresh path={$profilePath}\n\n{$existing}";
     exit(0);
 }
@@ -211,7 +215,7 @@ if (!is_array($composer)) {
 $learnedPos = $existing !== null ? strpos($existing, LEARNED_HEADING) : false;
 $learnedSection = $learnedPos !== false
     ? substr($existing, $learnedPos)
-    : LEARNED_HEADING . "\n<!-- Claude: add short bullets about conventions the config can't show (layering, naming, error model,\n     test style, things the user corrected). Keep this section under ~15 lines. -->\n";
+    : LEARNED_HEADING . "\n<!-- AI assistant: add short bullets about conventions the config can't show (layering, naming, error model,\n     test style, things the user corrected). Keep this section under ~15 lines. -->\n";
 
 $today = date('Y-m-d');
 $profile = "<!-- laravel-best-practices profile | fingerprint: {$fingerprint} | generated: {$today} -->\n"
@@ -224,5 +228,5 @@ if (!is_dir(dirname($profilePath))) {
     mkdir(dirname($profilePath), 0777, true);
 }
 file_put_contents($profilePath, $profile);
-$status = $existing === null ? 'created' : 'updated';
+$status = $migratedFrom !== null ? "migrated (from {$migratedFrom}; the old file can be deleted)" : ($existing === null ? 'created' : 'updated');
 echo "[laravel-profile] status={$status} path={$profilePath}\n\n{$profile}";

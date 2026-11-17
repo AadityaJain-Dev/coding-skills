@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Prints a compact JS/TS project profile, cached at <projectRoot>/.claude/js-project-profile.md.
+ * Prints a compact JS/TS project profile, cached at <projectRoot>/.agents/js-project-profile.md.
+ * Tool-agnostic: works with any AI assistant or IDE that can run a shell command.
  *
  * - First run: inspects package.json, tsconfig/jsconfig, lint/format/test config and writes the profile.
  * - Later runs: if the config fingerprint is unchanged, prints the cached profile (no re-inspection).
@@ -14,7 +15,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PROFILE_REL_PATH = join('.claude', 'js-project-profile.md');
+const PROFILE_REL_PATH = join('.agents', 'js-project-profile.md');
+const LEGACY_PROFILE_REL_PATH = join('.claude', 'js-project-profile.md'); // older location, migrated automatically
 const LEARNED_HEADING = '## Learned conventions';
 const CONFIG_FILES = [
   'package.json', 'tsconfig.json', 'jsconfig.json', 'pnpm-workspace.yaml',
@@ -127,7 +129,7 @@ const buildDetectedSection = (root, pkg) => {
 };
 
 const defaultLearnedSection = `${LEARNED_HEADING}
-<!-- Claude: add short bullets about conventions the config can't show (naming, folder layering,
+<!-- AI assistant: add short bullets about conventions the config can't show (naming, folder layering,
      error model, test style, things the user corrected). Keep this section under ~15 lines. -->
 `;
 
@@ -139,10 +141,12 @@ if (root === null) {
 
 const profilePath = join(root, PROFILE_REL_PATH);
 const fingerprint = fingerprintOf(root);
-const existing = readText(profilePath);
+const legacyPath = join(root, LEGACY_PROFILE_REL_PATH);
+const migratedFrom = !existsSync(profilePath) && existsSync(legacyPath) ? legacyPath : null;
+const existing = readText(migratedFrom ?? profilePath);
 const cachedFingerprint = existing?.match(/fingerprint: ([0-9a-f]+)/)?.[1];
 
-if (existing !== null && cachedFingerprint === fingerprint && !forceRefresh) {
+if (existing !== null && cachedFingerprint === fingerprint && !forceRefresh && migratedFrom === null) {
   console.log(`[js-profile] status=fresh path=${profilePath}\n`);
   console.log(existing);
   process.exit(0);
@@ -170,5 +174,6 @@ ${learnedSection.trimEnd()}
 
 mkdirSync(dirname(profilePath), { recursive: true });
 writeFileSync(profilePath, profile, 'utf8');
-console.log(`[js-profile] status=${existing === null ? 'created' : 'updated'} path=${profilePath}\n`);
+const status = migratedFrom ? `migrated (from ${migratedFrom}; the old file can be deleted)` : existing === null ? 'created' : 'updated';
+console.log(`[js-profile] status=${status} path=${profilePath}\n`);
 console.log(profile);
