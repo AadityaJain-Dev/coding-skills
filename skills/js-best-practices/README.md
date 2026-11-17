@@ -12,3 +12,9 @@ It doesn't teach the language. The assistant already knows it. It lists the mist
 4. As the assistant learns things about your project (how you name things, how you handle errors, things you corrected), it adds short notes under "Learned conventions" in that file.
 
 If your tool can't run terminal commands, the skill still works. The assistant just reads your config files directly.
+
+## Install
+
+```bash
+npx skills add https://github.com/AadityaJain-Dev/coding-skills/tree/release/skills/js-best-practices
+```

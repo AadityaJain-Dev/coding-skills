@@ -8,3 +8,9 @@ The base rules an AI assistant follows when writing or reviewing code in any lan
 - **How to write code.** Read the surrounding code first, build the smallest thing that works, test it, and check your own work before handing it over.
 - **A checklist** for design, naming, error handling, security, tests and performance.
 - **A review format.** Findings are sorted into 🔴 must fix, 🟡 should fix and 🟢 nits, each with a location and a suggested fix.
+
+## Install
+
+```bash
+npx skills add https://github.com/AadityaJain-Dev/coding-skills/tree/release/skills/coding-principles-and-best-practices
+```

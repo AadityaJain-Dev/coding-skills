@@ -17,3 +17,9 @@ It also lists the mistakes that slip through most often, like users being able t
 4. The assistant adds short notes about your project under "Learned conventions" as it goes.
 
 If your tool can't run terminal commands, the skill still works. The assistant just reads `composer.json` and `composer.lock` directly.
+
+## Install
+
+```bash
+npx skills add https://github.com/AadityaJain-Dev/coding-skills/tree/release/skills/laravel-best-practices
+```
