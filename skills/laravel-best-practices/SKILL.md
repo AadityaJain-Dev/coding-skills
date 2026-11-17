@@ -1,981 +1,116 @@
 ---
 name: laravel-best-practices
-description: 'Enforce modern PHP 8.3+ and Laravel 11 best practices for code generation and bug fixes. Use when writing or refactoring Laravel applications, ensuring clean architecture, SOLID principles, meaningful naming, proper separation of concerns, security, and maintainable design patterns.'
-argument-hint: 'Optional: specific domain focus (e.g., "controller action", "service class", "API resource", "job", "migration")'
+description: 'Enforce Laravel and PHP best practices, matching the project''s own PHP/Laravel versions and preferring built-in Laravel features over hand-rolled PHP. Use whenever writing, modifying, refactoring, debugging or reviewing PHP code in a Laravel project — controllers, models, migrations, jobs, Form Requests, policies, Blade, tests, artisan commands — including small fixes, PR reviews and pasted snippets, even if the user never says "best practices".'
 user-invocable: true
 ---
 
-# Laravel Best Practices Skill
+# Laravel & PHP Best Practices
+
+You already know PHP and Laravel, so skip generic advice. This skill only records **the rules that are easy to get wrong and the choices this team wants**. It sits on top of the core principles; it doesn't repeat them.
+
+## Setup (keep it cheap)
+
+1. **Core principles:** if `references/coding-principles-and-best-practices/SKILL.md` isn't already in this conversation, read it once. It defines precedence, the conflict ranking, the writing workflow, the general checklist and the review format. Don't re-read it on later invocations in the same conversation.
+2. **Project profile:** run `php <this-skill-dir>/scripts/laravel-profile.php <dir-of-the-file-you're-working-on>`. It prints the cached profile from `<projectRoot>/.claude/laravel-project-profile.md` and only re-inspects composer.json/composer.lock, `bootstrap/app.php` and tooling config when they've changed. Use it instead of opening those files yourself. Skip this step if the profile is already in this conversation and no config has changed.
+   - "No composer.json found" → standalone snippet; state the PHP and Laravel versions you assumed.
+   - `php` not on the host PATH → if the project uses Sail or Docker (`laravel/sail`, `compose.yaml`/`docker-compose.yml`), run it as `./vendor/bin/sail php …` or inside the app container. Otherwise read composer.json and composer.lock directly, once.
+3. **Learn as you go:** when you discover a convention the config can't show (layering, naming, error model, test style) or the user corrects you, add one short bullet under `## Learned conventions` in the profile. Keep that section under ~15 lines; it's read on every invocation. If the code contradicts a bullet, the code wins: fix or remove the bullet.
+
+The profile file is meant to be committed, so the team shares the learned conventions.
+
+## Versions decide the syntax
+
+Write for the **lowest PHP version the project allows** (the profile states it) and the **installed Laravel version** (from composer.lock). Use the newest idioms those versions support, and nothing newer. When you're unsure whether a method exists in the installed version, check `vendor/laravel/framework` instead of guessing.
+
+| Version | Gate these features on it |
+|---|---|
+| PHP 8.1 | enums, `readonly` properties, first-class callables `foo(...)`, `new` in initializers, `never` |
+| PHP 8.2 | `readonly` classes, DNF types, standalone `true`/`false`/`null` types |
+| PHP 8.3 | typed class constants, `#[\Override]`, `json_validate()` |
+| PHP 8.4 | property hooks, asymmetric visibility, `new Foo()->bar()` without parentheses, `array_find`/`array_any`/`array_all` |
+| PHP 8.5 | pipe operator `\|>`, `array_first`/`array_last` |
+| Laravel 9 | `Attribute::make()` accessors/mutators, enum casts |
+| Laravel 10 | native return/param types in the skeleton, `Process` facade |
+| Laravel 11 | slim skeleton (middleware, exceptions, routing in `bootstrap/app.php`; schedule in `routes/console.php`), `casts()` method, `Context`, `once()` |
+| Laravel 12 | mainly new starter kits; no syntax changes to gate |
+| Laravel 13 (PHP 8.3+) | model/job/command attributes (`#[Table]`, `#[Fillable]`, `#[Hidden]`…) as an alternative to properties — follow whichever style the project uses; `Queue::route()`, `Cache::touch()`, JSON:API resources |
+
+Follow the skeleton style the profile reports: don't create `app/Http/Kernel.php` in a slim app, or `bootstrap/app.php` configuration in a classic one. Use `declare(strict_types=1)` only if the project already does.
+
+## Scope
+
+Laravel back end, Blade and PHP. For Livewire, Inertia, Filament and similar stacks, follow their own conventions (and their skill, if one exists); apply the PHP/Laravel rules here, plus the security rules under "Rules that matter". Front-end JS/TS belongs to the JS skill.
+
+## Prefer Laravel over hand-rolled PHP
+
+If Laravel (or a package the project already has) provides it, use that. It's tested, secure by default, integrates with config/testing fakes and is what the next developer expects. Write custom PHP only when nothing built in fits, and comment why.
+
+| Instead of… | Use |
+|---|---|
+| curl / `file_get_contents` / raw Guzzle | `Http::timeout()->retry()->throw()`; test with `Http::fake()` |
+| manual `isset`/regex validation | Form Requests (`rules()`, `authorize()`), `Rule::` objects, custom rule classes |
+| `if ($user->id === $post->user_id)` scattered in code | Policies/Gates, `can` middleware, `authorize()` |
+| `password_hash`, `openssl_*`, `random_bytes` strings | `Hash`, `Crypt`, `Str::random`/`Str::password`/`Str::uuid` |
+| `exec`/`shell_exec`/`proc_open` | `Process` facade (10+) |
+| `fopen`/`file_put_contents` for app files | `Storage` disks |
+| hand-built caching, locks, rate limits | `Cache::remember`, `Cache::lock`, `RateLimiter` / `throttle` middleware |
+| array loops and string munging | Collections, `Arr`, `Str`, `Number`; `lazy()`/`cursor()` for large sets |
+| `date()`/`DateTime` | Carbon via `now()`/`today()`, date casts |
+| cron scripts, sync heavy work in requests | Scheduler, queued jobs, `Bus::chain`/`batch`, queued listeners/notifications |
+| manual retries, try/finally transactions | `retry()`, `DB::transaction()` |
+| hand-rolled pagination, signed links, JSON shaping | `paginate()`/`cursorPaginate()`, `URL::signedRoute`, API Resources |
+| custom logging context | `Log` with context arrays, `Context` (11+) |
+| `PDO`/string SQL | Eloquent/query builder with bindings |
+
+## Rules that matter
+
+**Architecture**
+- Match the layers the project already has (profile: "Existing app layers"). Default when none: thin controller → Form Request → Action or Service → Eloquent (with scopes). Don't add a repository layer over Eloquent unless the project already uses one.
+- Return API Resources, not models (models leak hidden attributes and couple the response to the schema). Use route model binding, with scoped bindings for nested resources.
+- Config: `env()` only inside `config/*.php`. Elsewhere it returns `null` once config is cached; use `config()`.
+- Side effects in observers and model events are invisible at the call site. Prefer explicit calls in the Action/Service; if you add an observer, say so.
+- Octane (see profile): workers are long-lived, so never keep request or user state in static properties, singletons or mutated `config()`; use scoped bindings.
+
+**Eloquent & database**
+- No N+1: eager load (`with`, `withCount`, `withSum`), and suggest `Model::shouldBeStrict(! app()->isProduction())` (lazy loading, silently discarded attributes, missing attributes) if the project doesn't enable it. Select only needed columns on large tables.
+- `exists()` instead of `count() > 0`; index columns used in `where`, `orderBy`, joins and foreign keys.
+- Status/type columns use backed enums with enum casts. Store timestamps in UTC; convert at the edge.
+- Never `Model::all()` or `->get()` on unbounded tables; paginate, `chunkById` (not `chunk` when updating the rows you iterate) or `lazyById`.
+- Mass assignment: define `$fillable`; pass `$request->validated()`/`safe()`, never `$request->all()`.
+- Raw SQL (`whereRaw`, `DB::raw`, `orderByRaw`) only with bindings — never interpolate input, including column names for sorting (allow-list them).
+- Multi-write operations go in `DB::transaction()`. Jobs, events and notifications dispatched inside a transaction use `afterCommit`.
+- Carbon is mutable: `$date->addDay()` changes `$date`. Use `CarbonImmutable` (or `->copy()`) when the value is shared.
+- Money in integer minor units or a money library — never floats.
+- Migrations: never edit one that has run; add a new one. Write `down()`. Adding `unique`/`NOT NULL` to existing data needs a backfill step first; dropping or renaming columns needs a deploy plan.
+
+**Security**
+- Scope record lookups to the owner or tenant: `$request->user()->orders()->findOrFail($id)`, not `Order::findOrFail($id)` followed by hoping a check happens later. The same applies to `exists:`/`unique:` validation rules in multi-tenant apps (`Rule::exists(...)->where(...)`).
+- Blade `{{ }}` escapes; `{!! !!}` is raw — only for HTML you sanitized yourself. Never put user input into `{!! !!}`, `@php echo`, or inline JS without `@js()`/`Js::from()`.
+- Authorize every action that touches a specific record (policy or Form Request `authorize()`); `return true` in `authorize()` is a red flag unless a route middleware handles it.
+- File uploads: validate `mimes`/`max`, store with generated names on a private disk unless public by design.
+- Never log passwords, tokens or full request bodies; use `$hidden` on models and `#[\SensitiveParameter]` (8.2+) for secrets in signatures.
+- Livewire: public properties can be changed from the browser. Mark IDs and anything security-relevant `#[Locked]`, and authorize inside every action method, not only in `mount()`.
+
+**Errors & logging**
+- Throw specific exceptions; render/report them centrally (`withExceptions()` in `bootstrap/app.php` on 11+, `Handler` on ≤10), not with try/catch in every controller. Catch only where you can act, rethrow with `previous:`.
+- `abort_if`/`abort_unless`/`throw_if` for guard clauses at boundaries.
+
+**Queues**
+- Jobs must be idempotent and set `$tries`/`backoff`/`timeout`; use `ShouldBeUnique` or `WithoutOverlapping` where duplicates hurt. Implement `failed()` when a failure needs cleanup.
+- Pass models (serialized as IDs by `SerializesModels`) or IDs, not large payloads; reload state in `handle()`.
+- Mail and notifications sent from a request implement `ShouldQueue`.
+
+**Tests**
+- Use the project's runner (Pest or PHPUnit — see profile) and its style. Feature tests via HTTP for endpoints; `RefreshDatabase` or `LazilyRefreshDatabase`; factories with states, not hand-built arrays.
+- Fake at boundaries: `Http::fake()`, `Queue::fake()`, `Mail::fake()`, `Event::fake()`, `Storage::fake()`, `Carbon::setTestNow()`/`travel()`. `Http::preventStrayRequests()` keeps tests off the network.
+
+## Writing
 
-## When to Use
+Follow the core workflow. Generate files with `php artisan make:*` where it exists so structure and namespaces match the installed version. Public methods get PHPDoc only where types don't already say it (generics like `Collection<int, User>`, thrown exceptions, the *why*). Verify with the commands listed in the profile and say which you couldn't run.
 
-- **Writing new Laravel/PHP code** to ensure clean, maintainable, and secure implementation
-- **Building features** (controllers, services, models, jobs, events, etc.)
-- **Fixing bugs** while improving code structure and adherence to standards
-- **Refactoring existing code** to improve quality, testability, and maintainability
-- **Security-critical code** where input validation and authorization matter
-- **API development** with proper resources and response formats
-- **Database work** with migrations, models, and queries
+## Reviewing
 
-## Core Principles
-
-### 1. Design & Coding Fundamentals
-
-| Principle | Application |
-|-----------|-------------|
-| **KISS** (Keep It Simple, Stupid) | Avoid over-engineering; leverage Laravel's built-in features. Prefer conventions over configuration. |
-| **DRY** (Don't Repeat Yourself) | Extract duplicated logic into traits, helpers, or base classes. Use Laravel's reusable components. |
-| **YAGNI** (You Aren't Gonna Need It) | Don't add features, methods, or middleware "just in case." Implement only what's needed now. |
-| **SOLID Principles** | Follow Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion. |
-| **Self-Explanatory Naming** | Use clear, descriptive names for classes, methods, variables that reveal intent without comments. |
-
-### 2. Modern PHP 8.3+
-
-**Always prefer modern syntax:**
-
-```php
-// ❌ Avoid
-if (!isset($user) || !$user->isActive()) {
-    return false;
-}
-
-$config = array_merge($defaults, $config ?? array());
-
-class UserController extends Controller {
-    public function __construct() {
-        $this->middleware('auth');
-    }
-}
-
-// ✅ Prefer
-if ($user?->isActive() !== true) {
-    return false;
-}
-
-$config = [...$defaults, ...$config ?? []];
-
-class UserController extends Controller {
-    public function __construct(private UserService $userService) {}
-}
-```
-
-**Key PHP 8.3+ features to use:**
-
-- **Constructor property promotion** — Declare and assign properties in one line
-- **Named arguments** — Call functions with clarity: `User::create(name: $name, email: $email)`
-- **Match expressions** — Type-safe alternative to switch: `match($status) { 'active' => ..., }`
-- **Attributes** — Use for metadata: `#[Validate('email')]`, `#[Authorize('update')]`
-- **Null-safe operator** (`?.`) — Safely chain calls: `$user?->profile?->address?->city`
-- **First-class callable syntax** — Pass methods as callables: `$callback = $user->getData(...)`
-- **Union/intersection types** — Type safety: `function process(User|Admin $person): User&ActiveInterface`
-- **Readonly properties** — Immutability: `public readonly string $name`
-- **Enums** — Type-safe constants: `enum Status { case ACTIVE; case INACTIVE; }`
-
-### 3. Laravel 11 Architecture
-
-#### Service Container & Dependency Injection
-
-```php
-// ❌ Avoid - hardcoded dependencies
-class OrderController extends Controller {
-    public function store(Request $request) {
-        $paymentGateway = new StripePaymentGateway();
-        $emailService = new SmtpEmailService();
-        $order = Order::create($request->validated());
-        
-        $paymentGateway->charge($order->total);
-        $emailService->sendConfirmation($order);
-        return $order;
-    }
-}
-
-// ✅ Prefer - inject dependencies
-class OrderController extends Controller {
-    public function store(
-        Request $request,
-        OrderService $orderService,
-    ) {
-        $order = $orderService->processOrder($request->validated());
-        return OrderResource::make($order);
-    }
-}
-
-// In AppServiceProvider or using automatic resolution:
-$this->app->bind(PaymentGateway::class, StripePaymentGateway::class);
-$this->app->bind(EmailService::class, SmtpEmailService::class);
-```
-
-#### Service Layer Pattern
-
-```php
-// ✅ Clean separation: Controller → Service → Repository
-class OrderController extends Controller {
-    public function __construct(private OrderService $orderService) {}
-    
-    public function store(StoreOrderRequest $request) {
-        $order = $this->orderService->createOrder($request->validated());
-        return OrderResource::make($order);
-    }
-}
-
-class OrderService {
-    public function __construct(
-        private OrderRepository $repository,
-        private PaymentGateway $paymentGateway,
-        private OrderNotificationService $notifications,
-    ) {}
-    
-    public function createOrder(array $data): Order {
-        $this->validateOrderData($data);
-        
-        $order = $this->repository->create($data);
-        
-        try {
-            $payment = $this->paymentGateway->charge($order);
-            $order->markAsPaid($payment);
-        } catch (PaymentFailedException $e) {
-            $order->markAsFailed($e->getMessage());
-            throw $e;
-        }
-        
-        $this->notifications->sendConfirmation($order);
-        return $order;
-    }
-    
-    private function validateOrderData(array $data): void {
-        throw_if(
-            empty($data['items']),
-            ValidationException::class,
-            'Order must contain at least one item'
-        );
-    }
-}
-
-class OrderRepository {
-    public function create(array $data): Order {
-        return Order::create([
-            'user_id' => auth()->id(),
-            'total' => $data['total'],
-            'status' => OrderStatus::PENDING,
-            'items' => $data['items'],
-        ]);
-    }
-}
-```
-
-#### Eloquent Best Practices
-
-```php
-// ❌ Avoid - N+1 queries, over-fetching
-class UserController extends Controller {
-    public function index() {
-        $users = User::all(); // No eager loading
-        return $users->map(fn($user) => [
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'posts_count' => $user->posts()->count(), // N+1 query!
-            'comments_count' => $user->comments()->count(), // N+1 query!
-        ]);
-    }
-}
-
-// ✅ Prefer - eager loading, explicit columns, proper resources
-class UserController extends Controller {
-    public function index(Request $request) {
-        $users = User::query()
-            ->select(['id', 'name', 'email'])
-            ->withCount(['posts', 'comments'])
-            ->paginate($request->input('per_page', 15));
-        
-        return UserResource::collection($users);
-    }
-}
-
-// Or with custom query scopes:
-class User extends Model {
-    public function scopeWithStats(Builder $query): Builder {
-        return $query
-            ->select(['id', 'name', 'email'])
-            ->withCount(['posts', 'comments']);
-    }
-}
-
-// Usage:
-User::withStats()->paginate();
-```
-
-### 4. Clean Code & Maintainability
-
-#### Meaningful Naming
-
-```php
-// ❌ Avoid
-public function p() {
-    $users = DB::table('users')->where('s', 1)->get();
-    return $users->filter(fn($u) => $u->c > 10);
-}
-
-// ✅ Prefer
-public function getActiveUsersWithMinimumOrderCount(int $minimumOrders = 10): Collection {
-    return User::query()
-        ->where('status', UserStatus::ACTIVE)
-        ->withCount('orders')
-        ->having('orders_count', '>=', $minimumOrders)
-        ->get();
-}
-
-// Method naming conventions:
-// - get* : retrieve data
-// - create* : instantiate new objects
-// - process* : transform or handle
-// - handle* : respond to events
-// - send* : dispatch notifications/messages
-// - validate* : check and throw on failure
-// - check* : return boolean
-// - calculate* : compute values
-```
-
-#### Single Responsibility
-
-```php
-// ❌ Avoid - God controller
-class UserController extends Controller {
-    public function store(Request $request) {
-        // Validates
-        $validated = $request->validate([...]);
-        
-        // Creates user
-        $user = User::create($validated);
-        
-        // Sends email
-        Mail::send(new WelcomeEmail($user));
-        
-        // Logs
-        Log::info('User created', ['user_id' => $user->id]);
-        
-        // Generates token
-        $token = $user->createToken('api')->plainTextToken;
-        
-        return response()->json([...]);
-    }
-}
-
-// ✅ Prefer - focused responsibilities
-class UserController extends Controller {
-    public function __construct(private UserService $userService) {}
-    
-    public function store(StoreUserRequest $request) {
-        $user = $this->userService->register($request->validated());
-        return UserResource::make($user);
-    }
-}
-
-class UserService {
-    public function __construct(
-        private UserRepository $repository,
-        private AuthTokenService $tokenService,
-        private UserNotificationService $notifications,
-    ) {}
-    
-    public function register(array $data): User {
-        $user = $this->repository->createUser($data);
-        $this->notifications->sendWelcome($user);
-        return $user;
-    }
-}
-
-class AuthTokenService {
-    public function generateApiToken(User $user): string {
-        return $user->createToken('api')->plainTextToken;
-    }
-}
-
-class UserRepository {
-    public function createUser(array $data): User {
-        return User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-        ]);
-    }
-}
-```
-
-### 5. Security & Input Validation
-
-#### Request Validation
-
-```php
-// ❌ Avoid - validating in controller
-public function store(Request $request) {
-    $this->validate($request, [
-        'email' => 'required|email|unique:users',
-        'password' => 'required|min:12|confirmed',
-    ]);
-}
-
-// ✅ Prefer - use Form Requests
-class StoreUserRequest extends FormRequest {
-    public function authorize(): bool {
-        return true; // Or: return auth()->user()?->isAdmin() ?? false;
-    }
-    
-    public function rules(): array {
-        return [
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'min:12', 'confirmed', new StrongPassword()],
-            'terms' => ['accepted'],
-        ];
-    }
-    
-    public function messages(): array {
-        return [
-            'password.min' => 'Password must be at least 12 characters for security',
-        ];
-    }
-}
-
-class StoreUserController extends Controller {
-    public function store(StoreUserRequest $request) {
-        // $request->validated() is already validated and safe
-        $user = User::create($request->validated());
-        return UserResource::make($user);
-    }
-}
-```
-
-#### Sanitization & Protection
-
-```php
-// ❌ Avoid - trusting user input
-public function search(Request $request) {
-    $query = $request->input('q'); // Don't trust this!
-    $users = DB::select("SELECT * FROM users WHERE name LIKE '%" . $query . "%'");
-    return $users;
-}
-
-// ✅ Prefer - sanitize and use parameterized queries
-public function search(SearchRequest $request) {
-    $query = $request->validated('q');
-    
-    // Laravel automatically parameterizes queries
-    $users = User::query()
-        ->where('name', 'like', "%{$query}%")
-        ->orWhere('email', 'like', "%{$query}%")
-        ->limit(50)
-        ->get();
-    
-    return UserResource::collection($users);
-}
-
-// Sanitize HTML output in Blade:
-<!-- ❌ Avoid -->
-{{ $userInput }} <!-- Outputs raw HTML/script -->
-
-<!-- ✅ Prefer -->
-{{ e($userInput) }} <!-- Escapes HTML entities -->
-{!! $trustedHtml !!} <!-- Only for trusted content -->
-```
-
-#### Authorization
-
-```php
-// ❌ Avoid - no authorization
-public function update(Request $request, Post $post) {
-    $post->update($request->validated());
-    return $post;
-}
-
-// ✅ Prefer - explicit authorization checks
-public function update(UpdatePostRequest $request, Post $post) {
-    $this->authorize('update', $post); // Or use middleware
-    
-    $post->update($request->validated());
-    return PostResource::make($post);
-}
-
-// Or using policies:
-class PostPolicy {
-    public function update(User $user, Post $post): bool {
-        return $user->id === $post->author_id;
-    }
-}
-
-// In controller:
-public function update(UpdatePostRequest $request, Post $post) {
-    if (! auth()->user()->can('update', $post)) {
-        abort(403, 'Unauthorized');
-    }
-    
-    $post->update($request->validated());
-    return PostResource::make($post);
-}
-```
-
-### 6. Error Handling & Logging
-
-#### Explicit Error Handling
-
-```php
-// ❌ Avoid - silent failures
-public function fetchUserFromApi(int $userId): ?User {
-    try {
-        $response = Http::get("https://api.example.com/users/{$userId}");
-        return $response->json();
-    } catch (Exception $e) {
-        // Error silently swallowed
-        return null;
-    }
-}
-
-// ✅ Prefer - explicit, context-rich handling
-public function fetchUserFromApi(int $userId): User {
-    try {
-        $response = Http::timeout(10)
-            ->retry(2, 100)
-            ->throw()
-            ->get("https://api.example.com/users/{$userId}");
-        
-        return User::create($response->json());
-    } catch (ConnectionException $e) {
-        throw new ExternalApiException(
-            "Failed to connect to user service for user {$userId}",
-            previous: $e
-        );
-    } catch (RequestException $e) {
-        if ($e->response->status() === 404) {
-            throw new UserNotFoundException("User {$userId} not found in external API");
-        }
-        throw new ExternalApiException(
-            "API returned error for user {$userId}: {$e->response->status()}",
-            previous: $e
-        );
-    }
-}
-```
-
-#### Meaningful Logging
-
-```php
-// ❌ Avoid - vague or too verbose
-Log::info('Process started');
-Log::debug('User: ' . $user->toJson());
-
-// ✅ Prefer - structured, context-rich logging
-Log::info('User registration initiated', [
-    'email' => $user->email,
-    'ip_address' => request()->ip(),
-    'user_agent' => request()->userAgent(),
-]);
-
-Log::warning('Payment failed for order', [
-    'order_id' => $order->id,
-    'amount' => $order->total,
-    'reason' => $paymentException->getMessage(),
-    'gateway' => 'stripe',
-]);
-
-Log::error('Database migration failed', [
-    'migration' => 'create_posts_table',
-    'error' => $exception->getMessage(),
-    'trace' => $exception->getTraceAsString(),
-]);
-```
-
-### 7. Eloquent Models & Relationships
-
-#### Proper Model Design
-
-```php
-// ❌ Avoid - bloated model with no clear responsibility
-class Post extends Model {
-    public function author() { return $this->belongsTo(User::class); }
-    public function comments() { return $this->hasMany(Comment::class); }
-    public function likes() { return $this->hasMany(Like::class); }
-    
-    public function publish() { 
-        $this->update(['published_at' => now()]);
-        event(new PostPublished($this));
-    }
-    
-    public function getCommentCount() {
-        return $this->comments()->count();
-    }
-    
-    public function sendNotifications() {
-        // Notification logic here
-    }
-    
-    public function generateSlug() {
-        // Slug generation
-    }
-}
-
-// ✅ Prefer - focused models with clear concerns
-class Post extends Model {
-    use HasTimestamps, Uuids, HasFactory;
-    
-    protected $fillable = ['title', 'content', 'author_id', 'published_at'];
-    protected $casts = [
-        'published_at' => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-    ];
-    
-    public function author(): BelongsTo {
-        return $this->belongsTo(User::class);
-    }
-    
-    public function comments(): HasMany {
-        return $this->hasMany(Comment::class);
-    }
-    
-    public function scopePublished(Builder $query): Builder {
-        return $query->whereNotNull('published_at');
-    }
-    
-    public function scopeByAuthor(Builder $query, User $user): Builder {
-        return $query->where('author_id', $user->id);
-    }
-}
-
-// Separate concerns into services/actions:
-class PublishPostAction {
-    public function __invoke(Post $post): void {
-        $post->update(['published_at' => now()]);
-        event(new PostPublished($post));
-        NotifyFollowersJob::dispatch($post);
-    }
-}
-```
-
-#### Type-Safe Relationships
-
-```php
-// ✅ Use strict types and return types
-class Post extends Model {
-    // Clearly indicate return types
-    public function author(): BelongsTo {
-        return $this->belongsTo(User::class, 'author_id');
-    }
-    
-    public function comments(): HasMany {
-        return $this->hasMany(Comment::class)->orderByDesc('created_at');
-    }
-    
-    public function tags(): BelongsToMany {
-        return $this->belongsToMany(
-            Tag::class,
-            'post_tags',
-            'post_id',
-            'tag_id'
-        )->withTimestamps();
-    }
-}
-
-// Usage with type safety:
-$post = Post::findOrFail($id);
-$authorName = $post->author->name; // Type-safe
-$comments = $post->comments()->approved()->get(); // Chainable
-```
-
-### 8. Jobs, Events & Queues
-
-#### Asynchronous Processing
-
-```php
-// ❌ Avoid - synchronous heavy operations in requests
-public function store(StoreOrderRequest $request) {
-    $order = Order::create($request->validated());
-    
-    // Blocking operations
-    Mail::send(new OrderConfirmation($order));
-    $this->generateInvoicePdf($order);
-    $this->syncWithWarehouse($order);
-    
-    return $order; // Takes 5+ seconds
-}
-
-// ✅ Prefer - queue heavy operations
-public function store(StoreOrderRequest $request) {
-    $order = Order::create($request->validated());
-    
-    // Dispatch to queue
-    ProcessOrderJob::dispatch($order);
-    
-    return OrderResource::make($order); // Responds immediately
-}
-
-class ProcessOrderJob implements ShouldQueue {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-    
-    public function __construct(private Order $order) {}
-    
-    public function handle(): void {
-        Mail::send(new OrderConfirmation($this->order));
-        GenerateInvoiceJob::dispatch($this->order);
-        SyncWithWarehouseJob::dispatch($this->order);
-        
-        Log::info('Order processed', ['order_id' => $this->order->id]);
-    }
-    
-    public function failed(Throwable $exception): void {
-        Log::error('Order processing failed', [
-            'order_id' => $this->order->id,
-            'error' => $exception->getMessage(),
-        ]);
-        
-        $this->order->markAsProcessingFailed();
-    }
-}
-```
-
-#### Domain Events
-
-```php
-// ✅ Use events for domain logic
-class OrderPlaced extends ShouldBroadcast {
-    public function __construct(public Order $order) {}
-    
-    public function broadcastOn(): array {
-        return [new PrivateChannel("user.{$this->order->user_id}")];
-    }
-}
-
-// In controller/service:
-event(new OrderPlaced($order));
-
-// Handle multiple listeners:
-class EventServiceProvider extends ServiceProvider {
-    protected $listen = [
-        OrderPlaced::class => [
-            SendOrderConfirmationEmail::class,
-            GenerateInvoice::class,
-            SyncWithWarehouse::class,
-            NotifyInventory::class,
-        ],
-    ];
-}
-
-class SendOrderConfirmationEmail implements ShouldQueue {
-    public function handle(OrderPlaced $event): void {
-        Mail::send(new OrderConfirmation($event->order));
-    }
-}
-```
-
-### 9. Documentation
-
-#### JSDoc-style PHP Documentation
-
-```php
-// ✅ Document complex logic with PHPDoc
-/**
- * Process refund for an order with partial refund support.
- * 
- * Uses exponential backoff for payment gateway retries to prevent
- * overwhelming the provider (see ticket PAYMENT-4521).
- * 
- * @param Order $order The order to refund
- * @param float $amount Amount to refund (null for full refund)
- * @return RefundResult Contains refund_id, status, and processed_at
- * @throws OrderNotRefundableException If order state doesn't allow refunds
- * @throws PaymentGatewayException If refund processing fails after retries
- */
-public function refundOrder(Order $order, ?float $amount = null): RefundResult {
-    throw_unless(
-        $order->canBeRefunded(),
-        OrderNotRefundableException::class,
-        "Order {$order->id} cannot be refunded in {$order->status} state"
-    );
-    
-    $refundAmount = $amount ?? $order->total;
-    
-    return retry(
-        times: 3,
-        delay: 100,
-        callback: fn() => $this->gateway->refund($order, $refundAmount),
-        when: fn(Throwable $e) => $e instanceof TemporaryPaymentException,
-    );
-}
-
-// Document "why", not "what":
-// The system retries refunds because payment gateways occasionally
-// timeout temporarily but recover quickly. Manual retries would be
-// cumbersome and error-prone, so we do it automatically.
-```
-
-### 10. Migrations & Database Design
-
-#### Safe Migrations
-
-```php
-// ❌ Avoid - risky operations
-Schema::create('users', function (Blueprint $table) {
-    $table->id();
-    $table->string('email')->unique(); // Can fail if duplicate data exists
-    $table->dropColumn('unused_field'); // Loses data
-    $table->integer('status'); // No clarity on values
-});
-
-// ✅ Prefer - safe, clear migrations
-Schema::create('users', function (Blueprint $table) {
-    $table->id();
-    $table->string('name');
-    $table->string('email')->unique();
-    $table->timestamp('email_verified_at')->nullable();
-    $table->string('password');
-    $table->enum('status', ['active', 'inactive', 'suspended'])->default('active');
-    $table->timestamps();
-    $table->softDeletes();
-    
-    $table->index('email');
-    $table->index(['status', 'created_at']);
-});
-
-// For schema changes in production:
-Schema::table('users', function (Blueprint $table) {
-    // Add new column with default to avoid NULL issues
-    $table->string('phone')->nullable()->after('email');
-});
-
-// Then in separate migration, remove old column:
-// Schema::table('users', function (Blueprint $table) {
-//     $table->dropColumn('old_phone');
-// });
-```
-
-## Implementation Procedure
-
-When writing Laravel code, follow this workflow:
-
-### Step 1: Understand Requirements & Design
-- Clarify inputs, outputs, and business rules
-- Identify edge cases and error scenarios
-- Design API contracts (request/response shapes)
-- Plan service layer boundaries
-
-### Step 2: Structure with SOLID Principles
-- **Single Responsibility**: Each class has one reason to change
-- **Open/Closed**: Design for extension, not modification
-- **Liskov Substitution**: Use contracts/interfaces properly
-- **Interface Segregation**: Depend on focused interfaces
-- **Dependency Inversion**: Inject dependencies via constructor
-
-### Step 3: Implement Using Laravel's Tools
-- Use Form Requests for validation
-- Use Services for business logic
-- Use Repositories for data access
-- Use Resources for API responses
-- Use Actions/Jobs for complex operations
-
-### Step 4: Apply Modern PHP 8.3+
-- Use constructor property promotion
-- Use match expressions for type-safe logic
-- Use named arguments for clarity
-- Use union/intersection types
-- Use enums for status values
-- Use readonly properties where appropriate
-
-### Step 5: Ensure Security
-- Validate all inputs via Form Requests
-- Check authorization on every action
-- Use parameterized queries (Eloquent does this)
-- Escape output in Blade templates
-- Use CSRF middleware and token validation
-
-### Step 6: Handle Errors Explicitly
-- Throw specific exception types
-- Catch specific exceptions, not generic `Exception`
-- Log with context for debugging
-- Provide meaningful error messages to users
-
-### Step 7: Test & Document
-- Write meaningful unit/feature tests
-- Document business logic in comments
-- Add PHPDoc for public methods
-- Reference tickets for policy decisions
-
-## Common Patterns
-
-### API Endpoint (Controller + Request + Resource)
-
-```php
-// routes/api.php
-Route::apiResource('posts', PostController::class);
-
-// app/Http/Controllers/PostController.php
-class PostController extends Controller {
-    public function __construct(private PostService $postService) {}
-    
-    public function index(Request $request) {
-        $posts = Post::query()
-            ->with('author')
-            ->withCount('comments')
-            ->paginate($request->input('per_page', 15));
-        
-        return PostResource::collection($posts);
-    }
-    
-    public function store(StorePostRequest $request) {
-        $post = $this->postService->create($request->validated());
-        return PostResource::make($post);
-    }
-    
-    public function show(Post $post) {
-        return PostResource::make($post->load('author', 'comments'));
-    }
-    
-    public function update(UpdatePostRequest $request, Post $post) {
-        $this->authorize('update', $post);
-        
-        $post = $this->postService->update($post, $request->validated());
-        return PostResource::make($post);
-    }
-    
-    public function destroy(Post $post) {
-        $this->authorize('delete', $post);
-        
-        $this->postService->delete($post);
-        return response()->noContent();
-    }
-}
-
-// app/Http/Requests/StorePostRequest.php
-class StorePostRequest extends FormRequest {
-    public function authorize(): bool {
-        return auth()->check();
-    }
-    
-    public function rules(): array {
-        return [
-            'title' => ['required', 'string', 'max:255'],
-            'content' => ['required', 'string', 'min:10'],
-            'tags' => ['array', 'max:5'],
-            'tags.*' => ['string', 'max:50'],
-        ];
-    }
-}
-
-// app/Http/Resources/PostResource.php
-class PostResource extends JsonResource {
-    public function toArray(Request $request): array {
-        return [
-            'id' => $this->id,
-            'title' => $this->title,
-            'content' => $this->content,
-            'author' => new UserResource($this->whenLoaded('author')),
-            'comments_count' => $this->when(isset($this->comments_count), $this->comments_count),
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
-        ];
-    }
-}
-```
-
-### Service Class Pattern
-
-```php
-class UserRegistrationService {
-    public function __construct(
-        private UserRepository $userRepository,
-        private EmailService $emailService,
-        private AuthTokenService $tokenService,
-    ) {}
-    
-    public function register(array $data): UserRegistrationResult {
-        throw_if(
-            User::where('email', $data['email'])->exists(),
-            ConflictException::class,
-            'Email already registered'
-        );
-        
-        $user = $this->userRepository->create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-        ]);
-        
-        try {
-            $this->emailService->sendVerificationEmail($user);
-        } catch (EmailException $e) {
-            Log::error('Failed to send verification email', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-        
-        $token = $this->tokenService->generateApiToken($user);
-        
-        return new UserRegistrationResult(
-            user: $user,
-            token: $token,
-        );
-    }
-}
-```
-
-### Query Scope Pattern
-
-```php
-class User extends Model {
-    public function scopeActive(Builder $query): Builder {
-        return $query->where('status', UserStatus::ACTIVE);
-    }
-    
-    public function scopeEmailVerified(Builder $query): Builder {
-        return $query->whereNotNull('email_verified_at');
-    }
-    
-    public function scopeWithOrderStats(Builder $query): Builder {
-        return $query->withCount('orders')
-            ->withSum('orders', 'total');
-    }
-    
-    public function scopeCreatedAfter(Builder $query, CarbonInterface $date): Builder {
-        return $query->where('created_at', '>=', $date);
-    }
-}
-
-// Usage:
-User::active()
-    ->emailVerified()
-    ->withOrderStats()
-    ->createdAfter(now()->subMonth())
-    ->get();
-```
-
-## Quick Checklist
-
-Before submitting code, verify:
-
-- [ ] Uses PHP 8.3+ features (constructor promotion, match, named args, null-safe)
-- [ ] Request validation via Form Request, not controller
-- [ ] Business logic in Service/Action classes, not controllers
-- [ ] Data access via Repository pattern or query scopes
-- [ ] All inputs validated and sanitized
-- [ ] All outputs escaped/authorized in Blade templates
-- [ ] Authorization checks on every action
-- [ ] Specific exceptions caught, never bare `catch (Exception)`
-- [ ] No N+1 queries (eager load relationships, use counts)
-- [ ] Error handling explicit with meaningful messages
-- [ ] Logging includes context (user ID, resource ID, etc.)
-- [ ] Class/method names clearly describe intent (no abbreviations)
-- [ ] Single responsibility per class/method
-- [ ] Dependencies injected, not instantiated internally
-- [ ] Events used for domain logic coupling
-- [ ] Jobs used for heavy/async operations
-- [ ] Database migrations safe for production (no data loss)
-- [ ] Models focused on data, business logic in services
-- [ ] PHPDoc on public methods explaining "why"
-- [ ] No code duplication (extract to traits/helpers)
-- [ ] No features added "just in case" (YAGNI)
-
-## Resources
-
-- [Laravel 11 Documentation](https://laravel.com/docs)
-- [PHP 8.3 Features](https://www.php.net/manual/en/migration83.php)
-- [SOLID Principles](https://en.wikipedia.org/wiki/SOLID)
-- [Clean Code PHP](https://github.com/piotrplenik/clean-code-php)
+Use the core review scope and format exactly. Skip what Pint/PHPStan/Larastan already enforce. Typical severities (adjust by impact and say why):
+- 🔴 Missing authorization or unscoped lookups on record access (IDOR); unlocked Livewire properties used for authorization; request state in statics/singletons under Octane; mass assignment from `all()`; interpolated raw SQL; `{!! !!}` with user data; `env()` outside config; float money; dispatch inside a transaction without `afterCommit` when the job needs committed data; syntax above the project's PHP/Laravel version; edited migrations that already ran.
+- 🟡 N+1 queries; unbounded `get()`/`all()`; hand-rolled code that duplicates a Laravel feature; business logic in controllers; returning models instead of Resources; non-idempotent jobs; missing tests or fakes.
+- 🟢 Older idioms where the installed version has a cleaner one; naming; small Collection simplifications.

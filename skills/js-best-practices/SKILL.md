@@ -6,7 +6,7 @@ user-invocable: true
 
 # JavaScript & TypeScript Best Practices
 
-Always use modern JS/TS. This skill only records **the rules that are easy to get wrong**. It sits on top of the core principles; it doesn't repeat them.
+You already know JS and TS, so skip generic advice. This skill only records **the rules that are easy to get wrong**. It sits on top of the core principles; it doesn't repeat them.
 
 ## Setup (keep it cheap)
 

@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PROFILE_REL_PATH = join('.claude', 'js-project-profile.md');
 const LEARNED_HEADING = '## Learned conventions';
@@ -59,6 +60,7 @@ const parseJsonc = (text) => {
 
 const fingerprintOf = (root) => {
   const hash = createHash('sha1');
+  hash.update(readFileSync(fileURLToPath(import.meta.url))); // script updates refresh old profiles
   for (const file of CONFIG_FILES) {
     const text = readText(join(root, file));
     if (text !== null) hash.update(`${file}\0${text}\0`);
