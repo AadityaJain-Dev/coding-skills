@@ -11,7 +11,7 @@ Always use modern JS/TS. This skill only records **the rules that are easy to ge
 ## Setup (keep it cheap)
 
 1. **Core principles:** if `references/coding-principles-and-best-practices/SKILL.md` isn't already in this conversation, read it once. It defines precedence, the conflict ranking, the writing workflow, the general checklist and the review format. Don't re-read it on later invocations in the same conversation.
-2. **Project profile:** run `node <this-skill-dir>/scripts/js-profile.mjs <dir-of-the-file-you're-working-on>`. It prints the cached profile from `<projectRoot>/.claude/js-project-profile.md`. Use the printed profile instead of opening those files yourself. Skip this step if the profile is already in this conversation and you haven't changed any config.
+2. **Project profile:** run `node <this-skill-dir>/scripts/js-profile.mjs <dir-of-the-file-you're-working-on>`. It prints the cached profile from `<projectRoot>/.claude/js-project-profile.md`, and only re-inspects the config (package.json, tsconfig, lint/test config) when that config has changed. Use the printed profile instead of opening those files yourself. Skip this step if the profile is already in this conversation and you haven't changed any config.
    - "No package.json found" → it's a standalone snippet; state your assumptions (runtime, ESM/CJS, TS or not).
    - Node unavailable → read package.json and tsconfig directly, once.
 3. **Learn as you go:** when you discover a convention the config can't show (folder layering, error model, naming, test style) or the user corrects you, add one short bullet under `## Learned conventions` in the profile. Keep that section under ~15 lines; it's read on every invocation.
