@@ -1,0 +1,71 @@
+# Builds ready-to-use skills and publishes them to the `release` branch.
+#
+# On `main`, the JS and Laravel skills don't contain the shared coding principles
+# (their references/ folders are git-ignored). This workflow copies the shared
+# principles into every skill that has a references/ folder, checks the skills,
+# and force-pushes the result to `release`, so people can install straight from there.
+#
+# Don't edit the `release` branch by hand: it's rebuilt from `main` on every run.
+
+name: Build release branch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - "README.md"
+      - "LICENSE"
+      - ".github/workflows/release-skills.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-branch
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Copy shared principles into each language skill
+        run: |
+          set -euo pipefail
+          source_file="skills/coding-principles-and-best-practices/SKILL.md"
+          test -f "$source_file" || { echo "::error::$source_file not found"; exit 1; }
+
+          # Any skill with a references/ folder gets a fresh copy, so new language skills work automatically.
+          for skill_dir in skills/*/; do
+            skill_dir="${skill_dir%/}"
+            [ -d "$skill_dir/references" ] || continue
+            target_dir="$skill_dir/references/coding-principles-and-best-practices"
+            mkdir -p "$target_dir"
+            cp "$source_file" "$target_dir/SKILL.md"
+            rm -f "$skill_dir/references/.gitignore"
+            echo "Prepared $skill_dir"
+          done
+
+      - name: Check the skills
+        run: |
+          set -euo pipefail
+          for skill_file in skills/*/SKILL.md; do
+            head -n 10 "$skill_file" | grep -q '^name:' || { echo "::error file=$skill_file::missing 'name' in frontmatter"; exit 1; }
+            head -n 10 "$skill_file" | grep -q '^description:' || { echo "::error file=$skill_file::missing 'description' in frontmatter"; exit 1; }
+          done
+          for script in skills/*/scripts/*.mjs; do [ -e "$script" ] && node --check "$script"; done
+          for script in skills/*/scripts/*.php; do [ -e "$script" ] && php -l "$script"; done
+          echo "All skills look good."
+
+      - name: Push to release branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add --all --force skills/*/references
+          git commit -m "Build release from ${GITHUB_SHA::7}"
+          git push --force origin HEAD:release
