@@ -14,6 +14,14 @@ They use the open `SKILL.md` format, so they work with any assistant that suppor
 
 The general principles live in one place. The JS and Laravel skills keep their own copy of it in `references/` and only add what's specific to their language. That way each skill stays short, and you only update the shared rules once.
 
+## Adding or updating a language skill
+
+Treat a language skill as a focused extension of `coding-principles-and-best-practices`, not a syntax guide or a second copy of the general rules. Assume agents know the language; add only language/framework-specific decision cues, non-obvious failure modes, relevant runtime or version constraints, and project-profile commands.
+
+Apply guidance when it addresses a concrete choice or risk, not as a checklist. Preserve behavior, respect the project's conventions, and keep authoring changes scoped. For reviews, use the shared scope, Git diff selection, and finding format; report evidence-backed defects or material risks, not style preferences.
+
+When a rule applies across languages, update the shared skill once. The release workflow copies it into each language skill's `references/` folder.
+
 ## Install
 
 The ready-to-use skills live on the [`release`](https://github.com/AadityaJain-Dev/coding-skills/tree/release) branch. It's built automatically from `main`, with the shared principles already copied in.
