@@ -1,6 +1,6 @@
 ---
 name: js-best-practices
-description: 'Enforce modern JavaScript best practices, SOLID principles, and clean code standards. Use when writing or refactoring JS/TS code, ensuring ES6+ syntax, meaningful naming, separation of concerns, input validation, and maintainable architecture.'
+description: 'Context-aware JavaScript/TypeScript guidance for writing and reviewing clean, safe code. Use when implementing or reviewing JS/TS changes to apply project conventions, runtime/version constraints, and material-risk checks.'
 user-invocable: true
 ---
 

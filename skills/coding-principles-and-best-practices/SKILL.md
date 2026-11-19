@@ -23,6 +23,8 @@ These are strong defaults, not laws. Break one only when doing so makes the code
 
 ## Checklist
 
+Treat this checklist as a set of decision prompts. Apply items that are relevant to the changed behavior, boundary, or risk level; don't force every item into every task.
+
 **Design**
 - Follow SOLID. Keep concerns separate (transport → business logic → data access), with no HTTP or SQL inside business logic.
 - Prefer composition over inheritance. Follow the Law of Demeter (no `a.b().c().d()` chains) and the principle of least astonishment (no hidden side effects or surprising return values).
@@ -64,8 +66,17 @@ Use an explicitly provided base or known PR target first. Otherwise prefer `orig
 
 When the current branch has an upstream-tracking ref, use that as the branch tip so the review covers published work. If it has no upstream, use `HEAD` and state that pushed status could not be verified. Do not fetch automatically; remote-tracking refs reflect the last local fetch. Disclose when local and upstream tips differ or ref freshness is uncertain.
 
+Typical command sequence (adapt to your shell/tooling):
+
+```bash
+git diff --cached
+git rev-parse --abbrev-ref --symbolic-full-name @{u}   # upstream ref (if any)
+git diff <base>...<upstream-or-HEAD>                   # unmerged branch changes from merge-base
+git rev-list --left-right --count HEAD...@{u}          # optional: local vs upstream divergence
+```
+
 ## Reviewing code
-Review the changed code and what it directly affects, against the checklist. Skip anything the linter or formatter already handles, and anything that matches the existing codebase's conventions. Before marking something Must fix, trace it to confirm it's real; if you aren't sure, say so. Report only evidence-backed defects or material risks; don't report style preferences or low-impact polish. Use this format:
+Review the changed code and what it directly affects, against the checklist. Skip anything the linter or formatter already handles, and anything that matches the existing codebase's conventions. Before marking something Must fix, trace it to confirm it's real; if you aren't sure, say so. Report only evidence-backed defects or material risks; don't report style preferences or low-impact polish. Include 🟢 Nits only when the user explicitly asked for polish/style feedback. Use this format:
 
 ```
 ## Review summary
@@ -74,7 +85,7 @@ Review the changed code and what it directly affects, against the checklist. Ski
 - <file:line> — <problem> → <fix>
 ### 🟡 Should fix (design, maintainability, missing tests)
 - <file:line> — <problem> → <fix>
-### 🟢 Nits
+### 🟢 Nits (only when requested)
 - <file:line> — <suggestion>
 ### ✅ Done well
 - <brief>

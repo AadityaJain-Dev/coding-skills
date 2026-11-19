@@ -22,6 +22,14 @@ Apply guidance when it addresses a concrete choice or risk, not as a checklist. 
 
 When a rule applies across languages, update the shared skill once. The release workflow copies it into each language skill's `references/` folder.
 
+### Quick checklist for new language skills
+
+- Build on `coding-principles-and-best-practices`; don't duplicate general workflow or review format.
+- Add only ecosystem-specific guidance: high-impact pitfalls, version/runtime gates, and boundary/security concerns.
+- Keep "Writing" guidance scoped and contextual: preserve behavior, apply low-risk improvements directly, ask only on consequential trade-offs.
+- Keep "Reviewing" guidance evidence-based: material risks and concrete fixes, not style policing.
+- Add a lightweight profile script and reuse its output so setup stays cheap across repeated invocations.
+
 ## Install
 
 The ready-to-use skills live on the [`release`](https://github.com/AadityaJain-Dev/coding-skills/tree/release) branch. It's built automatically from `main`, with the shared principles already copied in.

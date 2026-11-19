@@ -1,6 +1,6 @@
 ---
 name: laravel-best-practices
-description: 'Enforce Laravel and PHP best practices, matching the project''s own PHP/Laravel versions and preferring built-in Laravel features over hand-rolled PHP. Use whenever writing, modifying, refactoring, debugging or reviewing PHP code in a Laravel project — controllers, models, migrations, jobs, Form Requests, policies, Blade, tests, artisan commands — including small fixes, PR reviews and pasted snippets, even if the user never says "best practices".'
+description: 'Context-aware Laravel/PHP guidance for writing and reviewing clean, safe code. Use for Laravel project changes to apply project conventions, installed-version constraints, framework-native patterns, and material-risk checks.'
 user-invocable: true
 ---
 
@@ -22,13 +22,14 @@ The profile file is meant to be committed, so the team shares the learned conven
 
 Write for the **lowest PHP version the project allows** (the profile states it) and the **installed Laravel version** (from composer.lock). Use the newest idioms those versions support, and nothing newer. When you're unsure whether a method exists in the installed version, check `vendor/laravel/framework` instead of guessing.
 
+Version gates evolve quickly. Treat this table as a starting point, not a source of truth: when uncertain, prefer the profile and installed framework source over memory.
+
 | Version | Gate these features on it |
 |---|---|
 | PHP 8.1 | enums, `readonly` properties, first-class callables `foo(...)`, `new` in initializers, `never` |
 | PHP 8.2 | `readonly` classes, DNF types, standalone `true`/`false`/`null` types |
 | PHP 8.3 | typed class constants, `#[\Override]`, `json_validate()` |
 | PHP 8.4 | property hooks, asymmetric visibility, `new Foo()->bar()` without parentheses, `array_find`/`array_any`/`array_all` |
-| PHP 8.5 | pipe operator `\|>`, `array_first`/`array_last` |
 | Laravel 9 | `Attribute::make()` accessors/mutators, enum casts |
 | Laravel 10 | native return/param types in the skeleton, `Process` facade |
 | Laravel 11 | slim skeleton (middleware, exceptions, routing in `bootstrap/app.php`; schedule in `routes/console.php`), `casts()` method, `Context`, `once()` |
