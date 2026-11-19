@@ -11,6 +11,8 @@ It doesn't teach the language. The assistant already knows it. It lists the mist
 3. Next time, it reads that summary instead of digging through your config again. The summary refreshes by itself when your config changes.
 4. As the assistant learns things about your project (how you name things, how you handle errors, things you corrected), it adds short notes under "Learned conventions" in that file.
 
+Commit the profile file so your team shares those notes. In a monorepo, each package gets its own profile, and the package manager and shared scripts are read from the workspace root. The script needs Node.js 18 or later.
+
 If your tool can't run terminal commands, the skill still works. The assistant just reads your config files directly.
 
 ## Install

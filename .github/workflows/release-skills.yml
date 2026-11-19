@@ -1,9 +1,13 @@
 # Builds ready-to-use skills and publishes them to the `release` branch.
 #
+# Run it by hand: GitHub → Actions → "Build release branch" → Run workflow (on `main`).
+# Nothing runs automatically, so `release` only changes when you run this.
+#
 # On `main`, the JS and Laravel skills don't contain the shared coding principles
 # (their references/ folders are git-ignored). This workflow copies the shared
-# principles into every skill that has a references/ folder, checks the skills,
-# and force-pushes the result to `release`, so people can install straight from there.
+# principles into every skill that has a references/ folder (scripts/sync-references.mjs),
+# drops anything users shouldn't install (evals), checks the skills, and force-pushes
+# the result to `release`.
 #
 # Don't edit the `release` branch by hand: it's rebuilt from `main` on every run.
 
@@ -29,27 +33,39 @@ jobs:
       - name: Copy shared principles into each language skill
         run: |
           set -euo pipefail
-          source_file="skills/coding-principles-and-best-practices/SKILL.md"
-          test -f "$source_file" || { echo "::error::$source_file not found"; exit 1; }
+          node scripts/sync-references.mjs
+          # The copies are git-ignored on main; on release they must be committed.
+          rm -f skills/*/references/.gitignore
 
-          # Any skill with a references/ folder gets a fresh copy, so new language skills work automatically.
-          for skill_dir in skills/*/; do
-            skill_dir="${skill_dir%/}"
-            [ -d "$skill_dir/references" ] || continue
-            target_dir="$skill_dir/references/coding-principles-and-best-practices"
-            mkdir -p "$target_dir"
-            cp "$source_file" "$target_dir/SKILL.md"
-            rm -f "$skill_dir/references/.gitignore"
-            echo "Prepared $skill_dir"
-          done
+      - name: Leave out files users shouldn't install
+        run: |
+          set -euo pipefail
+          git rm -r -q --ignore-unmatch skills/*/evals
+          rm -rf skills/*/evals
 
       - name: Check the skills
         run: |
           set -euo pipefail
-          for skill_file in skills/*/SKILL.md; do
-            head -n 10 "$skill_file" | grep -q '^name:' || { echo "::error file=$skill_file::missing 'name' in frontmatter"; exit 1; }
-            head -n 10 "$skill_file" | grep -q '^description:' || { echo "::error file=$skill_file::missing 'description' in frontmatter"; exit 1; }
+          for skill_dir in skills/*/; do
+            skill_dir="${skill_dir%/}"
+            folder="$(basename "$skill_dir")"
+            skill_file="$skill_dir/SKILL.md"
+            test -f "$skill_file" || { echo "::error file=$skill_dir::missing SKILL.md"; exit 1; }
+
+            frontmatter="$(awk 'NR==1 && $0=="---" {inside=1; next} inside && $0=="---" {exit} inside {print}' "$skill_file")"
+            name="$(printf '%s\n' "$frontmatter" | sed -n 's/^name:[[:space:]]*//p' | tr -d "\"'")"
+            description="$(printf '%s\n' "$frontmatter" | sed -n 's/^description:[[:space:]]*//p')"
+            test -n "$name" || { echo "::error file=$skill_file::missing 'name' in frontmatter"; exit 1; }
+            test "$name" = "$folder" || { echo "::error file=$skill_file::name '$name' doesn't match folder '$folder'"; exit 1; }
+            test -n "$description" || { echo "::error file=$skill_file::missing 'description' in frontmatter"; exit 1; }
+            test "${#description}" -le 1024 || { echo "::error file=$skill_file::description is ${#description} characters (max 1024)"; exit 1; }
+
+            if [ -d "$skill_dir/references" ]; then
+              cmp -s skills/coding-principles-and-best-practices/SKILL.md "$skill_dir/references/coding-principles-and-best-practices/SKILL.md" \
+                || { echo "::error file=$skill_dir::shared principles weren't copied into references/"; exit 1; }
+            fi
           done
+          node --check scripts/sync-references.mjs
           for script in skills/*/scripts/*.mjs; do [ -e "$script" ] && node --check "$script"; done
           for script in skills/*/scripts/*.php; do [ -e "$script" ] && php -l "$script"; done
           echo "All skills look good."
@@ -60,5 +76,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git add --all --force skills/*/references
+          git add --all skills
           git commit -m "Build release from ${GITHUB_SHA::7}"
           git push --force origin HEAD:release

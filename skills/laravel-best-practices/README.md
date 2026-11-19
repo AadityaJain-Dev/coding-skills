@@ -16,6 +16,8 @@ It also lists the mistakes that slip through most often, like users being able t
 3. Next time, it reads that summary instead. The summary refreshes by itself when your dependencies or config change.
 4. The assistant adds short notes about your project under "Learned conventions" as it goes.
 
+Commit the profile file so your team shares those notes. The script needs PHP 8.0 or later; if PHP only exists inside Sail or Docker, the assistant runs it there.
+
 If your tool can't run terminal commands, the skill still works. The assistant just reads `composer.json` and `composer.lock` directly.
 
 ## Install

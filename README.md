@@ -1,38 +1,29 @@
 # coding-skills
 
-A small set of skills that help AI coding assistants write and review code the way we like it: clean, safe, and in line with each project's own setup.
+Opinionated skills that help AI coding assistants write and review code: clean, safe, and in line with each project's own setup and versions.
 
 They use the open `SKILL.md` format, so they work with any assistant that supports skills: GitHub Copilot in VS Code, Cursor, Codex, Gemini CLI, Claude Code, Windsurf and others.
 
 | Skill | What it's for |
 |---|---|
-| [coding-principles-and-best-practices](skills/coding-principles-and-best-practices/) | General rules for any language. The other two skills build on it. |
-| [js-best-practices](skills/js-best-practices/) | JavaScript and TypeScript (Node.js and plain browser code). |
-| [laravel-best-practices](skills/laravel-best-practices/) | PHP and Laravel. |
+| [coding-principles-and-best-practices](skills/coding-principles-and-best-practices/) | General rules for any language: when to ask, a checklist, which Git changes to review, and a review format. The other two skills build on it. |
+| [js-best-practices](skills/js-best-practices/) | JavaScript and TypeScript (Node.js, browser code, and the plain JS/TS inside framework projects). |
+| [laravel-best-practices](skills/laravel-best-practices/) | PHP and Laravel, written for the PHP and Laravel versions your project actually uses. |
 
-## How they fit together
+## What they add to your project
 
-The general principles live in one place. The JS and Laravel skills keep their own copy of it in `references/` and only add what's specific to their language. That way each skill stays short, and you only update the shared rules once.
+The JS and Laravel skills run a small script that summarises your project's setup (versions, libraries, test and lint commands) and saves it so it doesn't have to be worked out again each time:
 
-## Adding or updating a language skill
+- `.agents/js-project-profile.md`
+- `.agents/laravel-project-profile.md`
 
-Treat a language skill as a focused extension of `coding-principles-and-best-practices`, not a syntax guide or a second copy of the general rules. Assume agents know the language; add only language/framework-specific decision cues, non-obvious failure modes, relevant runtime or version constraints, and project-profile commands.
+Each file has an auto-generated part, refreshed whenever your config changes, and a short "Learned conventions" list the assistant adds to as it learns how your project works. **Commit these files** so your whole team shares what's been learned. The Laravel script never reads `.env`.
 
-Apply guidance when it addresses a concrete choice or risk, not as a checklist. Preserve behavior, respect the project's conventions, and keep authoring changes scoped. For reviews, use the shared scope, Git diff selection, and finding format; report evidence-backed defects or material risks, not style preferences.
-
-When a rule applies across languages, update the shared skill once. The release workflow copies it into each language skill's `references/` folder.
-
-### Quick checklist for new language skills
-
-- Build on `coding-principles-and-best-practices`; don't duplicate general workflow or review format.
-- Add only ecosystem-specific guidance: high-impact pitfalls, version/runtime gates, and boundary/security concerns.
-- Keep "Writing" guidance scoped and contextual: preserve behavior, apply low-risk improvements directly, ask only on consequential trade-offs.
-- Keep "Reviewing" guidance evidence-based: material risks and concrete fixes, not style policing.
-- Add a lightweight profile script and reuse its output so setup stays cheap across repeated invocations.
+The scripts need Node.js 18+ (JS) or PHP 8.0+ (Laravel), run inside Sail or Docker if that's where PHP lives. If the assistant can't run commands, the skills still work: it reads your config files directly.
 
 ## Install
 
-The ready-to-use skills live on the [`release`](https://github.com/AadityaJain-Dev/coding-skills/tree/release) branch. It's built automatically from `main`, with the shared principles already copied in.
+The ready-to-use skills live on the [`release`](https://github.com/AadityaJain-Dev/coding-skills/tree/release) branch, which has the shared principles already copied in. Install from there, not from `main`.
 
 **With the skills CLI** (needs Node.js). It works with GitHub Copilot, Cursor, Codex, Gemini CLI, Claude Code, Windsurf and more, and asks which tools to install to:
 
@@ -57,11 +48,29 @@ Add `-g` to install for all your projects instead of just this one, and `--copy`
 | Windsurf | `.windsurf/skills/` |
 | Anything else | Check your tool's docs for its skills folder |
 
-You don't need `coding-principles-and-best-practices` separately if you install the JS or Laravel skill. They already include it.
+These locations change from time to time, so check your tool's docs if a skill doesn't show up.
+
+**Which ones do you need?** The JS and Laravel skills already include the shared principles, so you don't need `coding-principles-and-best-practices` as well. Install it on its own for projects in other languages. Installing all three is fine: the language skills skip re-reading the principles if they're already loaded.
+
+## How they fit together
+
+The general principles live in one place, `skills/coding-principles-and-best-practices/SKILL.md`. Each language skill reads a copy of it from its own `references/` folder and only adds what's specific to its language. That way each skill stays short, and the shared rules are updated once.
 
 ## Contributing
 
-Make changes on `main`. On every push, a GitHub workflow copies the shared principles into each skill's `references/` folder, checks the skills and publishes the result to `release`. Don't edit `release` by hand; it's rebuilt each time.
+Make changes on `main`. Don't edit `release` by hand; it's rebuilt from `main` each time it's published.
+
+**Publishing.** The `release` branch only changes when you run the workflow yourself: on GitHub, go to **Actions → Build release branch → Run workflow**. It copies the shared principles into each skill's `references/` folder, leaves out the evals, checks the skills (frontmatter, name matches folder, script syntax) and force-pushes the result to `release`. Until you run it, `release` can lag behind `main`.
+
+**Testing locally.** The `references/` copies are git-ignored on `main`. After changing the shared principles, run `node scripts/sync-references.mjs` so local copies of the JS and Laravel skills read the current rules.
+
+**Adding a language skill.** Treat it as an extension of the shared principles, not a syntax guide or a second copy of them. Assume the assistant already knows the language.
+
+- Add only what's specific to the ecosystem: easy-to-miss pitfalls, version and runtime gates, and security concerns at its boundaries.
+- Don't repeat the shared workflow, scope rules or review format; point to them.
+- Write rules as prompts that apply when their failure mode is relevant, and review guidance as evidence-backed findings, not style policing.
+- Add a `references/` folder (with a `.gitignore` containing `coding-principles-and-best-practices/`) so the release workflow copies the principles in.
+- Add a small profile script that caches its output, so setup stays cheap on repeated use.
 
 ## License
 

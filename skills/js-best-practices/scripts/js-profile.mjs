@@ -6,13 +6,15 @@
  * - First run: inspects package.json, tsconfig/jsconfig, lint/format/test config and writes the profile.
  * - Later runs: if the config fingerprint is unchanged, prints the cached profile (no re-inspection).
  * - Config changed (or --refresh): regenerates the "Detected" section and keeps "Learned conventions".
+ * - Monorepos: the profile belongs to the nearest package; package manager and workspace facts come from
+ *   the workspace root (nearest ancestor with "workspaces" in package.json or a pnpm-workspace.yaml).
  *
  * Usage: node js-profile.mjs [startDir] [--refresh]
  * Zero dependencies; works on Windows, macOS and Linux with Node 18+.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PROFILE_REL_PATH = join('.agents', 'js-project-profile.md');
@@ -36,6 +38,7 @@ const LIBRARY_GROUPS = {
   'Lint/format': ['eslint', 'prettier', '@biomejs/biome', 'oxlint', 'typescript-eslint', '@typescript-eslint/eslint-plugin'],
   Tests: ['vitest', 'jest', 'mocha', 'ava', '@playwright/test', 'cypress', '@testing-library/dom', 'msw', 'supertest'],
 };
+const LOCKFILES = ['pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock', 'package-lock.json'];
 const SCRIPT_KEYS = ['lint', 'typecheck', 'type-check', 'tsc', 'test', 'build', 'format', 'check'];
 
 const args = process.argv.slice(2);
@@ -54,34 +57,63 @@ const findProjectRoot = (dir) => {
 
 const readText = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null);
 
+const readPackageJson = (dir) => {
+  try {
+    return JSON.parse(readText(join(dir, 'package.json')) ?? 'null');
+  } catch {
+    return null;
+  }
+};
+
+const isWorkspaceRoot = (dir) =>
+  existsSync(join(dir, 'pnpm-workspace.yaml')) || Boolean(readPackageJson(dir)?.workspaces);
+
+/** Nearest ancestor (including dir itself) that declares workspaces, or null. */
+const findWorkspaceRoot = (dir) => {
+  let current = dir;
+  while (true) {
+    if (existsSync(join(current, 'package.json')) && isWorkspaceRoot(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+};
+
 /** tsconfig allows comments and trailing commas; strip them before JSON.parse. */
 const parseJsonc = (text) => {
   const withoutComments = text.replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (_, str) => str ?? '');
   return JSON.parse(withoutComments.replace(/,(\s*[}\]])/g, '$1'));
 };
 
-const fingerprintOf = (root) => {
+const fingerprintOf = (dirs) => {
   const hash = createHash('sha1');
   hash.update(readFileSync(fileURLToPath(import.meta.url))); // script updates refresh old profiles
-  for (const file of CONFIG_FILES) {
-    const text = readText(join(root, file));
-    if (text !== null) hash.update(`${file}\0${text}\0`);
+  for (const dir of dirs) {
+    hash.update(`dir\0${dir}\0`);
+    for (const file of CONFIG_FILES) {
+      const text = readText(join(dir, file));
+      if (text !== null) hash.update(`${file}\0${text}\0`);
+    }
+    for (const lockfile of LOCKFILES) {
+      if (existsSync(join(dir, lockfile))) hash.update(`lock\0${lockfile}\0`); // presence only: decides the package manager
+    }
   }
   return hash.digest('hex').slice(0, 12);
 };
 
 const detectPackageManager = (root, pkg) => {
   if (pkg.packageManager) return pkg.packageManager.split('@')[0];
-  if (existsSync(join(root, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (existsSync(join(root, 'pnpm-lock.yaml')) || existsSync(join(root, 'pnpm-workspace.yaml'))) return 'pnpm';
   if (existsSync(join(root, 'yarn.lock'))) return 'yarn';
   if (existsSync(join(root, 'bun.lockb')) || existsSync(join(root, 'bun.lock'))) return 'bun';
   return 'npm';
 };
 
-const describeTypeScript = (root, deps) => {
-  for (const file of ['tsconfig.json', 'jsconfig.json']) {
-    const text = readText(join(root, file));
+const describeTypeScript = (dirs, deps) => {
+  for (const [dir, file] of dirs.flatMap((d) => [[d, 'tsconfig.json'], [d, 'jsconfig.json']])) {
+    const text = readText(join(dir, file));
     if (text === null) continue;
+    const where = dirs.length > 1 && dir !== dirs[0] ? ' (from workspace root)' : '';
     try {
       const { compilerOptions = {}, extends: base } = parseJsonc(text);
       const parts = [
@@ -94,7 +126,7 @@ const describeTypeScript = (root, deps) => {
         compilerOptions.paths && `path aliases: ${Object.keys(compilerOptions.paths).join(', ')}`,
         base && `extends ${base} (inherited options not read)`,
       ];
-      return parts.filter(Boolean).join(', ');
+      return parts.filter(Boolean).join(', ') + where;
     } catch {
       return `${file} present but could not be parsed — read it directly if settings matter`;
     }
@@ -102,29 +134,43 @@ const describeTypeScript = (root, deps) => {
   return deps.typescript ? 'TypeScript dependency but no tsconfig.json at root' : 'Plain JavaScript (no tsconfig)';
 };
 
-const buildDetectedSection = (root, pkg) => {
-  const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
-  const packageManager = detectPackageManager(root, pkg);
-  const scripts = pkg.scripts ?? {};
+const depsOf = (pkg) => ({ ...pkg?.dependencies, ...pkg?.devDependencies, ...pkg?.peerDependencies });
+
+const buildDetectedSection = (packageRoot, pkg, workspaceRoot) => {
+  const rootPkg = workspaceRoot ? readPackageJson(workspaceRoot) ?? {} : pkg;
+  const inWorkspacePackage = workspaceRoot !== null && workspaceRoot !== packageRoot;
+  // Lint/test tooling often lives only in the workspace root's devDependencies.
+  const deps = inWorkspacePackage ? { ...depsOf(rootPkg), ...depsOf(pkg) } : depsOf(pkg);
+  const packageManager = detectPackageManager(workspaceRoot ?? packageRoot, rootPkg);
+  const engines = pkg.engines?.node ?? rootPkg.engines?.node;
   const lines = [
     `- Package: ${pkg.name ?? '(unnamed)'}; package manager: ${packageManager}`,
     `- Modules: ${pkg.type === 'module' ? 'ESM ("type": "module")' : 'CommonJS by default (no "type": "module"); .mjs files are ESM'}`,
-    `- Runtime: ${pkg.engines?.node ? `Node ${pkg.engines.node}` : 'Node version not pinned (engines.node unset)'}`,
-    `- Types: ${describeTypeScript(root, deps)}`,
+    `- Runtime: ${engines ? `Node ${engines}` : 'Node version not pinned (engines.node unset)'}`,
+    `- Types: ${describeTypeScript(inWorkspacePackage ? [packageRoot, workspaceRoot] : [packageRoot], deps)}`,
   ];
-  if (pkg.workspaces || existsSync(join(root, 'pnpm-workspace.yaml'))) {
-    lines.push('- Monorepo: workspaces present — check the nearest package.json of the file you edit');
+  if (inWorkspacePackage) {
+    const rel = relative(workspaceRoot, packageRoot).split('\\').join('/');
+    lines.push(`- Monorepo: workspace package \`${rel}\` of the workspace at ${workspaceRoot}; this profile covers this package only`);
+  } else if (workspaceRoot !== null) {
+    lines.push('- Monorepo: this is the workspace root — run the profile from inside a package to see that package\'s setup');
   }
   for (const [label, names] of Object.entries(LIBRARY_GROUPS)) {
     const found = names.filter((name) => deps[name]).map((name) => `${name}@${deps[name]}`);
     if (found.length > 0) lines.push(`- ${label}: ${found.join(', ')}`);
   }
-  const usefulScripts = SCRIPT_KEYS.filter((key) => scripts[key]);
-  lines.push(
-    usefulScripts.length > 0
-      ? `- Verify with: ${usefulScripts.map((key) => `\`${packageManager} run ${key}\``).join(', ')}`
-      : '- Verify with: no lint/test/build scripts in package.json',
-  );
+  const packageScripts = SCRIPT_KEYS.filter((key) => pkg.scripts?.[key]);
+  const rootScripts = inWorkspacePackage ? SCRIPT_KEYS.filter((key) => rootPkg.scripts?.[key]) : [];
+  const commands = (keys) => keys.map((key) => `\`${packageManager} run ${key}\``).join(', ');
+  if (packageScripts.length > 0) {
+    lines.push(`- Verify with: ${commands(packageScripts)}${inWorkspacePackage ? ' (run in this package\'s folder)' : ''}`);
+  }
+  if (rootScripts.length > 0) {
+    lines.push(`- Verify from the workspace root: ${commands(rootScripts)}`);
+  }
+  if (packageScripts.length === 0 && rootScripts.length === 0) {
+    lines.push('- Verify with: no lint/test/build scripts in package.json');
+  }
   return lines.join('\n');
 };
 
@@ -139,8 +185,9 @@ if (root === null) {
   process.exit(0);
 }
 
+const workspaceRoot = findWorkspaceRoot(root);
 const profilePath = join(root, PROFILE_REL_PATH);
-const fingerprint = fingerprintOf(root);
+const fingerprint = fingerprintOf(workspaceRoot && workspaceRoot !== root ? [root, workspaceRoot] : [root]);
 const legacyPath = join(root, LEGACY_PROFILE_REL_PATH);
 const migratedFrom = !existsSync(profilePath) && existsSync(legacyPath) ? legacyPath : null;
 const existing = readText(migratedFrom ?? profilePath);
@@ -167,7 +214,7 @@ const profile = `<!-- js-best-practices profile | fingerprint: ${fingerprint} | 
 # JS project profile
 
 ## Detected (auto-generated — rerun scripts/js-profile.mjs, don't hand-edit)
-${buildDetectedSection(root, pkg)}
+${buildDetectedSection(root, pkg, workspaceRoot)}
 
 ${learnedSection.trimEnd()}
 `;

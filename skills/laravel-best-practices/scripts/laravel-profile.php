@@ -61,6 +61,35 @@ function readText(string $path): ?string
     return is_file($path) ? (string) file_get_contents($path) : null;
 }
 
+/** App layer folders that exist, e.g. app/Actions. Part of the fingerprint, so new layers refresh the profile. */
+function existingStructureDirs(string $root): array
+{
+    return array_values(array_filter(STRUCTURE_DIRS, fn (string $dir): bool => is_dir($root . '/' . $dir)));
+}
+
+/**
+ * Whether the app declares strict_types, judged by the majority of up to 6 sampled models/controllers.
+ * The base Controller.php is skipped: the skeleton generates it without strict_types.
+ * (No GLOB_BRACE: it doesn't exist on Alpine/musl builds of PHP.)
+ */
+function strictTypesUsage(string $root): ?bool
+{
+    $files = [];
+    foreach (['app/Models', 'app/Http/Controllers'] as $dir) {
+        $found = glob($root . '/' . $dir . '/*.php') ?: [];
+        $found = array_filter($found, fn (string $file): bool => basename($file) !== 'Controller.php');
+        $files = [...$files, ...array_slice(array_values($found), 0, 3)];
+    }
+    if ($files === []) {
+        return null;
+    }
+    $withStrictTypes = count(array_filter(
+        $files,
+        fn (string $file): bool => str_contains((string) file_get_contents($file, false, null, 0, 300), 'strict_types=1'),
+    ));
+    return $withStrictTypes * 2 > count($files);
+}
+
 function fingerprintOf(string $root): string
 {
     $context = hash_init('sha1');
@@ -71,6 +100,8 @@ function fingerprintOf(string $root): string
             hash_update($context, $file . "\0" . $text . "\0");
         }
     }
+    hash_update($context, 'dirs' . "\0" . implode(',', existingStructureDirs($root)) . "\0");
+    hash_update($context, 'strict' . "\0" . var_export(strictTypesUsage($root), true) . "\0");
     return substr(hash_final($context), 0, 12);
 }
 
@@ -98,9 +129,10 @@ function buildDetectedSection(string $root, array $composer): string
 
     $phpConstraint = $composer['config']['platform']['php'] ?? $composer['require']['php'] ?? null;
     $phpMinimum = $phpConstraint !== null ? minimumVersion($phpConstraint) : null;
-    $phpLine = $phpConstraint !== null
+    $phpLine = $phpMinimum !== null
         ? "constraint `{$phpConstraint}` → write syntax for PHP {$phpMinimum} (lowest allowed); CLI here is " . PHP_VERSION
-        : 'no PHP constraint in composer.json; CLI here is ' . PHP_VERSION . ' — ask before using features newer than the production version';
+        : ($phpConstraint !== null ? "constraint `{$phpConstraint}` has no lower bound" : 'no PHP constraint in composer.json')
+            . '; CLI here is ' . PHP_VERSION . ' — ask before using features newer than the production version';
 
     $laravel = $versionOf('laravel/framework');
     $laravelLine = $laravel !== null
@@ -131,15 +163,15 @@ function buildDetectedSection(string $root, array $composer): string
         }
     }
 
-    $existingDirs = array_values(array_filter(STRUCTURE_DIRS, fn (string $dir): bool => is_dir($root . '/' . $dir)));
+    $existingDirs = existingStructureDirs($root);
     $lines[] = '- Existing app layers: ' . ($existingDirs !== [] ? implode(', ', $existingDirs) : 'default Laravel structure only');
 
-    $strictTypes = false;
-    foreach (glob($root . '/app/{Http/Controllers,Models}/*.php', GLOB_BRACE) ?: [] as $file) {
-        $strictTypes = str_contains((string) file_get_contents($file, false, null, 0, 300), 'strict_types=1');
-        break;
-    }
-    $lines[] = '- declare(strict_types=1): ' . ($strictTypes ? 'used' : 'not seen in a sampled controller/model');
+    $strictTypes = strictTypesUsage($root);
+    $lines[] = '- declare(strict_types=1): ' . match ($strictTypes) {
+        true => 'used in most sampled models/controllers',
+        false => 'not used in most sampled models/controllers',
+        null => 'unknown (no models or controllers yet)',
+    };
 
     // Sail/Docker: PHP may exist only inside the container, so commands need a prefix there.
     $composeFile = null;
