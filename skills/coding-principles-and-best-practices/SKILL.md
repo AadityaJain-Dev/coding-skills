@@ -56,8 +56,16 @@ These are strong defaults, not laws. Break one only when doing so makes the code
 **Hygiene**
 - Follow the Boy Scout rule with small cleanups only; keep big refactors out of feature changes. Delete dead code. Make small, atomic changes with messages that explain why.
 
+## Selecting changes for a Git review
+
+Review the staged diff (`git diff --cached`) and the current branch's unmerged changes with `git diff <base>...<upstream>`, which compares from their merge-base. Exclude unstaged and untracked changes unless the user asks to include them.
+
+Use an explicitly provided base or known PR target first. Otherwise prefer `origin/develop`, then a detected remote default branch, and use a local base only when no remote ref is available. If no reliable base can be identified, ask rather than guessing.
+
+When the current branch has an upstream-tracking ref, use that as the branch tip so the review covers published work. If it has no upstream, use `HEAD` and state that pushed status could not be verified. Do not fetch automatically; remote-tracking refs reflect the last local fetch. Disclose when local and upstream tips differ or ref freshness is uncertain.
+
 ## Reviewing code
-Review the changed code and what it directly affects, against the checklist. Skip anything the linter or formatter already handles, and anything that matches the existing codebase's conventions. Before marking something Must fix, trace it to confirm it's real; if you aren't sure, say so. Keep nits to the few that matter. Use this format:
+Review the changed code and what it directly affects, against the checklist. Skip anything the linter or formatter already handles, and anything that matches the existing codebase's conventions. Before marking something Must fix, trace it to confirm it's real; if you aren't sure, say so. Report only evidence-backed defects or material risks; don't report style preferences or low-impact polish. Use this format:
 
 ```
 ## Review summary

@@ -67,10 +67,12 @@ The profile decides syntax availability (target/engines), module system, which l
 - Mock at boundaries (network, clock, fs) with the project's tools and fake timers; no real network, time zone or order dependence.
 
 ## Writing
+Use this as a decision guide, not a syntax checklist. Assume the agent knows JavaScript/TypeScript. Start from the requested behavior and relevant project conventions or profile. Keep cleanup within the requested area and directly coupled code; prioritize preserving behavior, then improve local clarity and simplicity. Make obvious, low-risk improvements directly, and ask only when a choice affects behavior, a public API, dependencies, scope, or is costly to reverse. Treat the rules below as prompts to apply when their failure mode is relevant, not as requirements for every change.
 
 Follow the core workflow. Prefer the platform (`fetch`, `structuredClone`, `Intl`, `URL`, `crypto.randomUUID`, `AbortSignal.timeout`) before adding a dependency. Exported functions get JSDoc/TSDoc (params, returns, throws, side effects). Verify with the commands listed in the profile and say which you couldn't run.
 
 ## Reviewing
+Treat the JavaScript/TypeScript rules below as review prompts, not automatic findings. Report only evidence-backed defects or material risks, with their impact and a focused fix; skip style preferences and syntax coaching.
 
 Use the core review scope and format exactly. Skip anything ESLint/Prettier/Biome already enforces. Typical severities (adjust by impact and say why):
 - 🔴 XSS sinks or `eval` with untrusted data; injection or prototype pollution; secrets in client code; floating promises that lose errors or break ordering; `||` defaults corrupting valid falsy values; float money; missing `response.ok` on calls that matter; caller-visible mutation; stale-response races.

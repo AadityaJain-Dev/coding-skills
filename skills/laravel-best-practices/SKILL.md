@@ -105,10 +105,12 @@ If Laravel (or a package the project already has) provides it, use that. It's te
 - Fake at boundaries: `Http::fake()`, `Queue::fake()`, `Mail::fake()`, `Event::fake()`, `Storage::fake()`, `Carbon::setTestNow()`/`travel()`. `Http::preventStrayRequests()` keeps tests off the network.
 
 ## Writing
+Use this as a decision guide, not a syntax checklist. Assume the agent knows PHP/Laravel. Start from the requested behavior and the project's PHP/Laravel versions, skeleton, and conventions. Preserve behavior and existing architecture; keep cleanup within the requested area and directly coupled code. Make obvious, low-risk improvements directly, and ask only when a choice affects behavior, a public API, dependencies, scope, or is costly to reverse. Apply the rules below when their failure mode is relevant, not as requirements for every change.
 
 Follow the core workflow. Generate files with `php artisan make:*` where it exists so structure and namespaces match the installed version. Public methods get PHPDoc only where types don't already say it (generics like `Collection<int, User>`, thrown exceptions, the *why*). Verify with the commands listed in the profile and say which you couldn't run.
 
 ## Reviewing
+Treat the Laravel/PHP rules below as review prompts, not automatic findings. Report only evidence-backed defects or material risks, with their impact and a focused fix; skip style preferences.
 
 Use the core review scope and format exactly. Skip what Pint/PHPStan/Larastan already enforce. Typical severities (adjust by impact and say why):
 - 🔴 Missing authorization or unscoped lookups on record access (IDOR); unlocked Livewire properties used for authorization; request state in statics/singletons under Octane; mass assignment from `all()`; interpolated raw SQL; `{!! !!}` with user data; `env()` outside config; float money; dispatch inside a transaction without `afterCommit` when the job needs committed data; syntax above the project's PHP/Laravel version; edited migrations that already ran.
