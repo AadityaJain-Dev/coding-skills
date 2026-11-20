@@ -10,7 +10,7 @@ You already know PHP and Laravel, so skip generic advice. This skill only record
 
 ## Setup (keep it cheap)
 
-1. **Core principles:** if `references/coding-principles-and-best-practices/SKILL.md` isn't already in this conversation, read it once. It defines precedence, the conflict ranking, the writing workflow, the general checklist and the review format. Don't re-read it on later invocations in the same conversation.
+1. **Core principles:** if `references/coding-principles-and-best-practices/SKILL.md` isn't already in this conversation, read it once. It defines precedence, the conflict ranking, the writing workflow and when to ask, the general checklist, Git review scope and the review format. Don't re-read it on later invocations in the same conversation.
 2. **Project profile:** run `php <folder-containing-this-SKILL.md>/scripts/laravel-profile.php <dir-of-the-file-you're-working-on>`. It prints the cached profile from `<projectRoot>/.agents/laravel-project-profile.md` and only re-inspects composer.json/composer.lock, `bootstrap/app.php` and tooling config when they've changed. Use it instead of opening those files yourself. Skip this step if the profile is already in this conversation and no config has changed.
    - "No composer.json found" → standalone snippet; state the PHP and Laravel versions you assumed.
    - `php` not on the host PATH → if the project uses Sail or Docker (`laravel/sail`, `compose.yaml`/`docker-compose.yml`), run it as `./vendor/bin/sail php …` or inside the app container. Otherwise read composer.json and composer.lock directly, once.
@@ -34,7 +34,7 @@ Version gates evolve quickly. Treat this table as a starting point, not a source
 | Laravel 10 | native return/param types in the skeleton, `Process` facade |
 | Laravel 11 | slim skeleton (middleware, exceptions, routing in `bootstrap/app.php`; schedule in `routes/console.php`), `casts()` method, `Context`, `once()` |
 | Laravel 12 | mainly new starter kits; no syntax changes to gate |
-| Laravel 13 (PHP 8.3+) | model/job/command attributes (`#[Table]`, `#[Fillable]`, `#[Hidden]`…) as an alternative to properties — follow whichever style the project uses; `Queue::route()`, `Cache::touch()`, JSON:API resources |
+| Laravel 13 (PHP 8.3+) | attributes as an alternative to properties and methods — models (`#[Table]`, `#[Fillable]`, `#[Hidden]`), controllers (`#[Middleware]`, `#[Authorize]`), jobs (`#[Tries]`, `#[Backoff]`, `#[Timeout]`); follow whichever style the project uses. Also `Queue::route()`, `Cache::touch()`, JSON:API resources |
 
 Follow the skeleton style the profile reports: don't create `app/Http/Kernel.php` in a slim app, or `bootstrap/app.php` configuration in a classic one. Use `declare(strict_types=1)` only if the project already does.
 
@@ -73,7 +73,7 @@ If Laravel (or a package the project already has) provides it, use that. It's te
 - Octane (see profile): workers are long-lived, so never keep request or user state in static properties, singletons or mutated `config()`; use scoped bindings.
 
 **Eloquent & database**
-- No N+1: eager load (`with`, `withCount`, `withSum`), and suggest `Model::shouldBeStrict(! app()->isProduction())` (lazy loading, silently discarded attributes, missing attributes) if the project doesn't enable it. Select only needed columns on large tables.
+- No N+1: eager load (`with`, `withCount`, `withSum`). When you find an N+1 or a silently discarded attribute and the project doesn't enable it, recommend `Model::shouldBeStrict(! app()->isProduction())` as part of that fix, so the next one fails in development. Select only needed columns on large tables.
 - `exists()` instead of `count() > 0`; index columns used in `where`, `orderBy`, joins and foreign keys.
 - Status/type columns use backed enums with enum casts. Store timestamps in UTC; convert at the edge.
 - Never `Model::all()` or `->get()` on unbounded tables; paginate, `chunkById` (not `chunk` when updating the rows you iterate) or `lazyById`.
@@ -97,23 +97,19 @@ If Laravel (or a package the project already has) provides it, use that. It's te
 - `abort_if`/`abort_unless`/`throw_if` for guard clauses at boundaries.
 
 **Queues**
-- Jobs must be idempotent and set `$tries`/`backoff`/`timeout`; use `ShouldBeUnique` or `WithoutOverlapping` where duplicates hurt. Implement `failed()` when a failure needs cleanup.
+- Jobs must be idempotent. Make sure `tries`/`backoff`/`timeout` are set somewhere (on the job, or centrally in Horizon/worker config — check before adding per-job values); use `ShouldBeUnique` or `WithoutOverlapping` where duplicates hurt. Implement `failed()` when a failure needs cleanup.
 - Pass models (serialized as IDs by `SerializesModels`) or IDs, not large payloads; reload state in `handle()`.
-- Mail and notifications sent from a request implement `ShouldQueue`.
+- Mail and notifications sent from a request implement `ShouldQueue` by default, unless the project deliberately sends them synchronously.
 
 **Tests**
 - Use the project's runner (Pest or PHPUnit — see profile) and its style. Feature tests via HTTP for endpoints; `RefreshDatabase` or `LazilyRefreshDatabase`; factories with states, not hand-built arrays.
 - Fake at boundaries: `Http::fake()`, `Queue::fake()`, `Mail::fake()`, `Event::fake()`, `Storage::fake()`, `Carbon::setTestNow()`/`travel()`. `Http::preventStrayRequests()` keeps tests off the network.
 
 ## Writing
-Use this as a decision guide, not a syntax checklist. Assume the agent knows PHP/Laravel. Start from the requested behavior and the project's PHP/Laravel versions, skeleton, and conventions. Preserve behavior and existing architecture; keep cleanup within the requested area and directly coupled code. Make obvious, low-risk improvements directly, and ask only when a choice affects behavior, a public API, dependencies, scope, or is costly to reverse. Apply the rules below when their failure mode is relevant, not as requirements for every change.
-
-Follow the core workflow. Generate files with `php artisan make:*` where it exists so structure and namespaces match the installed version. Public methods get PHPDoc only where types don't already say it (generics like `Collection<int, User>`, thrown exceptions, the *why*). Verify with the commands listed in the profile and say which you couldn't run.
+Follow the core workflow and its scope rules, starting from the project's PHP/Laravel versions, skeleton and existing architecture. Treat the rules above as prompts to apply when their failure mode is relevant, not as a checklist for every change. Generate files with `php artisan make:*` where it exists so structure and namespaces match the installed version. Public methods get PHPDoc only where types don't already say it (generics like `Collection<int, User>`, thrown exceptions, the *why*). Verify with the commands listed in the profile and say which you couldn't run.
 
 ## Reviewing
-Treat the Laravel/PHP rules below as review prompts, not automatic findings. Report only evidence-backed defects or material risks, with their impact and a focused fix; skip style preferences.
-
-Use the core review scope and format exactly. Skip what Pint/PHPStan/Larastan already enforce. Typical severities (adjust by impact and say why):
+Use the core review scope and format exactly, and treat the rules above as review prompts, not automatic findings. Skip what Pint/PHPStan/Larastan already enforce. Typical severities (adjust by impact and say why):
 - 🔴 Missing authorization or unscoped lookups on record access (IDOR); unlocked Livewire properties used for authorization; request state in statics/singletons under Octane; mass assignment from `all()`; interpolated raw SQL; `{!! !!}` with user data; `env()` outside config; float money; dispatch inside a transaction without `afterCommit` when the job needs committed data; syntax above the project's PHP/Laravel version; edited migrations that already ran.
 - 🟡 N+1 queries; unbounded `get()`/`all()`; hand-rolled code that duplicates a Laravel feature; business logic in controllers; returning models instead of Resources; non-idempotent jobs; missing tests or fakes.
-- 🟢 Older idioms where the installed version has a cleaner one; naming; small Collection simplifications.
+- 🟢 Only when the user asked for nits: older idioms where the installed version has a cleaner one; naming; small Collection simplifications.

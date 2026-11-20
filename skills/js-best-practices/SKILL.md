@@ -10,20 +10,27 @@ You already know JS and TS, so skip generic advice. This skill only records **th
 
 ## Setup (keep it cheap)
 
-1. **Core principles:** if `references/coding-principles-and-best-practices/SKILL.md` isn't already in this conversation, read it once. It defines precedence, the conflict ranking, the writing workflow, the general checklist and the review format. Don't re-read it on later invocations in the same conversation.
+1. **Core principles:** if `references/coding-principles-and-best-practices/SKILL.md` isn't already in this conversation, read it once. It defines precedence, the conflict ranking, the writing workflow and when to ask, the general checklist, Git review scope and the review format. Don't re-read it on later invocations in the same conversation.
 2. **Project profile:** run `node <folder-containing-this-SKILL.md>/scripts/js-profile.mjs <dir-of-the-file-you're-working-on>`. It prints the cached profile from `<projectRoot>/.agents/js-project-profile.md`, and only re-inspects the config (package.json, tsconfig, lint/test config) when that config has changed. Use the printed profile instead of opening those files yourself. Skip this step if the profile is already in this conversation and you haven't changed any config.
+   - In a monorepo each package gets its own profile; the package manager, shared tooling and root scripts come from the workspace root.
    - "No package.json found" → it's a standalone snippet; state your assumptions (runtime, ESM/CJS, TS or not).
    - Node unavailable → read package.json and tsconfig directly, once.
-3. **Learn as you go:** when you discover a convention the config can't show (folder layering, error model, naming, test style) or the user corrects you, add one short bullet under `## Learned conventions` in the profile. Keep that section under ~15 lines; it's read on every invocation.
+3. **Learn as you go:** when you discover a convention the config can't show (folder layering, error model, naming, test style) or the user corrects you, add one short bullet under `## Learned conventions` in the profile. Keep that section under ~15 lines; it's read on every invocation. If the code contradicts a bullet, the code wins: fix or remove the bullet.
 
-The profile decides syntax availability (target/engines), module system, which libraries to reuse (don't add a second validator, HTTP client or date library) and which commands to verify with.
+The profile file is meant to be committed, so the team shares the learned conventions.
+
+The profile decides syntax availability (target/engines), module system, which libraries to reuse and which commands to verify with.
+
+## Scope
+
+Plain JS/TS, Node.js and browser DOM code. For React, Vue, Angular, Svelte, Next.js and similar, follow the framework's own conventions (and its skill, if one exists) and apply the rules here to the JS/TS underneath.
 
 ## Rules that matter
 
 **Values & mutation**
-- `??` for defaults, never `||` (it drops `0`, `''`, `false`). `?.` only for genuinely optional data — don't use it to hide values that should always exist.
+- `??` for defaults; `||` only when every falsy value (`0`, `''`, `false`) should fall back too. `?.` only for genuinely optional data — don't use it to hide values that should always exist.
 - `===` everywhere; `x == null` is the only accepted loose check.
-- Spread/`Object.assign` are shallow → `structuredClone` for deep copies. `sort`/`reverse`/`splice` mutate the caller's array → use `toSorted`/`toReversed`/`toSpliced`/`with` (if the target allows) or copy first.
+- Spread/`Object.assign` are shallow → `structuredClone` for deep copies of plain data (it drops functions and class prototypes). `sort`/`reverse`/`splice` mutate the caller's array → use `toSorted`/`toReversed`/`toSpliced`/`with` (if the target allows) or copy first.
 - No money in floats (integer minor units or a decimal lib). `Number.parseInt(x, 10)`, `Number.isNaN`. `BigInt` for IDs above `MAX_SAFE_INTEGER`.
 - Dates: date-only ISO strings parse as UTC, date-time strings without offset as local; `Date` months are 0-based. Store/transmit UTC ISO 8601, format at the edge with `Intl`.
 
@@ -38,7 +45,7 @@ The profile decides syntax availability (target/engines), module system, which l
 - `catch (err)` is `unknown`: narrow with `instanceof`, re-throw what you can't handle. An empty catch needs a comment explaining why.
 
 **TypeScript** (when the profile says TS)
-- No `any` (use `unknown` + narrowing); no `!` assertions; `@ts-expect-error <reason>` instead of `@ts-ignore`.
+- No `any` (use `unknown` + narrowing). Avoid `!` non-null assertions: narrow instead, or comment why the value can't be null. `@ts-expect-error <reason>` instead of `@ts-ignore`.
 - Types vanish at runtime: validate request bodies, API responses, `JSON.parse`, storage and env vars with the project's schema library. `as` is not validation.
 - Model states as discriminated unions with an exhaustive `switch` (`never` default). Annotate exported signatures; let locals infer. `satisfies` over widening annotations.
 
@@ -64,17 +71,13 @@ The profile decides syntax availability (target/engines), module system, which l
 
 **Tests**
 - Await async assertions (`await expect(p).rejects.toThrow(X)`); an un-awaited one passes silently.
-- Mock at boundaries (network, clock, fs) with the project's tools and fake timers; no real network, time zone or order dependence.
+- Use the runner's fake timers and module mocks for the clock, network and fs; no real network, time zone or test-order dependence.
 
 ## Writing
-Use this as a decision guide, not a syntax checklist. Assume the agent knows JavaScript/TypeScript. Start from the requested behavior and relevant project conventions or profile. Keep cleanup within the requested area and directly coupled code; prioritize preserving behavior, then improve local clarity and simplicity. Make obvious, low-risk improvements directly, and ask only when a choice affects behavior, a public API, dependencies, scope, or is costly to reverse. Treat the rules below as prompts to apply when their failure mode is relevant, not as requirements for every change.
-
-Follow the core workflow. Prefer the platform (`fetch`, `structuredClone`, `Intl`, `URL`, `crypto.randomUUID`, `AbortSignal.timeout`) before adding a dependency. Exported functions get JSDoc/TSDoc (params, returns, throws, side effects). Verify with the commands listed in the profile and say which you couldn't run.
+Follow the core workflow and its scope rules, and treat the rules above as prompts to apply when their failure mode is relevant, not as a checklist for every change. Prefer the platform (`fetch`, `structuredClone`, `Intl`, `URL`, `crypto.randomUUID`, `AbortSignal.timeout`) before adding a dependency. Exported functions get JSDoc/TSDoc (params, returns, throws, side effects). Verify with the commands listed in the profile and say which you couldn't run.
 
 ## Reviewing
-Treat the JavaScript/TypeScript rules below as review prompts, not automatic findings. Report only evidence-backed defects or material risks, with their impact and a focused fix; skip style preferences and syntax coaching.
-
-Use the core review scope and format exactly. Skip anything ESLint/Prettier/Biome already enforces. Typical severities (adjust by impact and say why):
+Use the core review scope and format exactly, and treat the rules above as review prompts, not automatic findings. Skip anything ESLint/Prettier/Biome already enforces. Typical severities (adjust by impact and say why):
 - 🔴 XSS sinks or `eval` with untrusted data; injection or prototype pollution; secrets in client code; floating promises that lose errors or break ordering; `||` defaults corrupting valid falsy values; float money; missing `response.ok` on calls that matter; caller-visible mutation; stale-response races.
 - 🟡 Missing cleanup or timeouts; sequential independent awaits; `any`/`as`/`!` on external data without runtime validation; layout thrashing; unbounded caches; missing or un-awaited tests.
-- 🟢 `.then()` chains that read better as `await`; unnecessary `?.`; small naming fixes.
+- 🟢 Only when the user asked for nits: `.then()` chains that read better as `await`; unnecessary `?.`; small naming fixes.
